@@ -92,9 +92,9 @@ public Action Cmd_BhopScores(int client, int args)
 
 void PrintRecords(int client)
 {
-	PrintToConsole(client, "[BHOP] Record: Recon: %f", g_topScore[CLASS_RECON]);
-	PrintToConsole(client, "[BHOP] Record: Assault: %f", g_topScore[CLASS_ASSAULT]);
-	PrintToConsole(client, "[BHOP] Record: Support: %f", g_topScore[CLASS_SUPPORT]);
+	PrintToConsole(client, "[BHOP] Recon record: %f", g_topScore[CLASS_RECON]);
+	PrintToConsole(client, "[BHOP] Assault record: %f", g_topScore[CLASS_ASSAULT]);
+	PrintToConsole(client, "[BHOP] Support record: %f", g_topScore[CLASS_SUPPORT]);
 }
 
 public void OnClientPutInServer(int client)
