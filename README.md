@@ -9,9 +9,10 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
 - Remember to change weapons to pistol or knife for speed, as you should not be able to drop your weapons.  
 
 **Instructions for Server Operators:**  
-- Bhop plugin does yet play nicely with the autobalance plugin or perhaps other unknown plugins, otherwise it should be fine to use with any compatible map. 
+- Bhop plugin does not play nicely with the autobalance plugin yet, or perhaps other unknown plugins, otherwise it should be fine to use with any compatible map. 
  
 **Instructions for Mappers:**
 - All you need to create a map for this mode at the moment are two `trigger_multiple` entities on a map set to `ctg`, between which the players will race.
 - Call the triggers: `bhop_trigger_one` and `bhop_trigger_two`.
+- Include `_bhop` in the map name.
 
