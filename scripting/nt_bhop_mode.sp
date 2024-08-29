@@ -3,6 +3,9 @@
 #include <sdkhooks>
 #include <neotokyo>
 
+#pragma semicolon 1
+#pragma newdecls required
+
 static char g_className[][] = {
 	"Unknown",
 	"Recon",
@@ -25,7 +28,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop and compete with others!",
 	author = "bauxite",
-	version = "0.1.0",
+	version = "0.1.1",
 	url = "",
 };
 
@@ -59,7 +62,7 @@ public void OnPluginStart()
 	HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
 	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post);
 	AddCommandListener(OnTeam, "jointeam");
-	RegConsoleCmd("sm_bhoprecords", Command_ShowScores);
+	RegConsoleCmd("sm_bhoprecords", Cmd_BhopScores);
 	
 	if(g_lateLoad)
 	{
@@ -76,17 +79,22 @@ public void OnPluginStart()
 	}
 }
 
-public Action Command_ShowScores(int client, int args)
+public Action Cmd_BhopScores(int client, int args)
 {
-	if(!IsClientInGame(client) || client <= 0 || client > MaxClients)
+	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
 	{
 		return Plugin_Handled;
 	}
-	
+
+	RequestFrame(PrintRecords, client);
+	return Plugin_Handled;
+}
+
+void PrintRecords(int client)
+{
 	PrintToConsole(client, "[BHOP] Record: Recon: %f", g_topScore[CLASS_RECON]);
 	PrintToConsole(client, "[BHOP] Record: Assault: %f", g_topScore[CLASS_ASSAULT]);
 	PrintToConsole(client, "[BHOP] Record: Support: %f", g_topScore[CLASS_SUPPORT]);
-	return Plugin_Continue;
 }
 
 public void OnClientPutInServer(int client)
