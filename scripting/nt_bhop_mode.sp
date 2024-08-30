@@ -30,20 +30,6 @@ int g_triggerTwo;
 int g_triggerStart;
 int g_triggerFinish;
 
-public Plugin myinfo = {
-	name = "Bhop Game Mode",
-	description = "Test how fast you can bhop and compete with others!",
-	author = "bauxite",
-	version = "0.2.0",
-	url = "",
-};
-
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
-{
-	g_lateLoad = late;
-	return APLRes_Success;
-}
-
 int FindEntityByTargetname(const char[] classname, const char[] targetname)
 {
 	int ent = -1;
@@ -62,14 +48,22 @@ int FindEntityByTargetname(const char[] classname, const char[] targetname)
 	return -1;
 }
 
+public Plugin myinfo = {
+	name = "Bhop Game Mode",
+	description = "Test how fast you can bhop and compete with others!",
+	author = "bauxite",
+	version = "0.2.1",
+	url = "",
+};
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	g_lateLoad = late;
+	return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
-	HookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
-	HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
-	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post);
-	AddCommandListener(OnTeam, "jointeam");
-	RegConsoleCmd("sm_bhoprecords", Cmd_BhopScores);
-	
 	if(g_lateLoad)
 	{
 		OnMapInit();
@@ -82,6 +76,71 @@ public void OnPluginStart()
 				OnClientPutInServer(client);
 			}
 		}
+	}
+}
+
+public void OnMapInit()
+{
+	char mapName[32];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	if(StrContains(mapName, "_bhop", false) != -1)
+	{
+		g_bhopMap = true;
+	}
+	else
+	{
+		g_bhopMap = false;
+	}
+	
+	if(!g_bhopMap)
+	{
+		return; //fail plugin?
+	}
+	
+	HookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
+	HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
+	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post);
+	AddCommandListener(OnTeam, "jointeam");
+	RegConsoleCmd("sm_bhoprecords", Cmd_BhopScores); //remove on map end?
+}
+
+public void OnMapStart()
+{
+	if(!g_bhopMap)
+	{
+		return;
+	}
+	
+	HookTriggers();
+	
+	for(int client = 1; client <= MaxClients; client++)
+	{
+		FullResetClient(client);
+	}
+	
+	g_cvarTeamBalance = FindConVar("neottb_enable");
+	if(g_cvarTeamBalance != null)
+	{
+		g_cvarTeamBalance.SetInt(0);
+		PrintToServer("[BHOP] Disabling team balancing");
+	}
+	else
+	{
+		PrintToServer("[BHOP] Team balancer plugin not found");
+	}
+}
+
+public void OnMapEnd()
+{
+	if(!g_bhopMap)
+	{
+		return;
+	}
+	
+	for(int i = 0; i <= 3; i++)
+	{
+		g_topScore[i] = 0.0;
 	}
 }
 
@@ -133,46 +192,6 @@ public Action OnTeam(int client, const char[] command, int argc)
 	}
 	
 	return Plugin_Continue;
-}
-
-public void OnMapInit()
-{
-	char mapName[32];
-	GetCurrentMap(mapName, sizeof(mapName));
-	
-	if(StrContains(mapName, "_bhop", false) != -1)
-	{
-		g_bhopMap = true;
-	}
-	else
-	{
-		g_bhopMap = false;
-	}
-}
-
-public void OnMapStart()
-{
-	if(!g_bhopMap)
-	{
-		return;
-	}
-	
-	HookTriggers();
-	
-	for(int client = 1; client <= MaxClients; client++)
-	{
-		FullResetClient(client);
-	}
-	
-	g_cvarTeamBalance = FindConVar("neottb_enable");
-	if(g_cvarTeamBalance != null)
-	{
-		g_cvarTeamBalance.SetInt(0);
-	}
-	else
-	{
-		PrintToServer("[BHOP] Team balancer plugin not found");
-	}
 }
 
 public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadcast)
@@ -238,8 +257,8 @@ void SetupPlayer(int userid)
 		return;
 	}
 	
-	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one trigger to the other");
-	PrintToChat(client, "[BHOP] If you touch the same trigger twice, you are reset");
+	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
+	PrintToChat(client, "[BHOP] If you touch the same line twice, you are reset");
 	
 	CreateTimer(1.0, StripPrimaryAndNades, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
