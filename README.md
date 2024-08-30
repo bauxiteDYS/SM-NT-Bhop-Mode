@@ -9,7 +9,8 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
 - If you have a bad start, you can touch the trigger again where you started, touching the same trigger twice resets your time and gives you full aux. Times only count from when the plugin prints "start hopping".
 
 **Instructions for Server Operators:**  
-- Bhop plugin does not play nicely with the autobalance plugin yet, or perhaps other unknown plugins, otherwise it should be fine to use with any compatible map. 
+- Add plugin and _bhop maps to the server, whenever they are voted the plugin should activate otherwise it does nothing
+- Might be incompatible with some plugins, unknown which at the moment.
  
 **Instructions for Mappers:**
 - All you need to create a map for this mode at the moment are two `trigger_multiple` entities on a map set to `ctg`, between which the players will race.
