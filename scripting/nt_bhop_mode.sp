@@ -469,7 +469,7 @@ void CheckTime(int client, int class)
 	g_time[client] = g_newTime[client] - g_oldTime[client];
 	PrintToChat(client, "[BHOP] Your time: %f", g_time[client]);
 	ResetClient(client, class);
-	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0)
+	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) // use FloatCompare
 	{
 		g_topScore[class] = g_time[client];
 		PrintToChatAll("[BHOP] New %s record by %N!: %f", g_className[class], client, g_time[client]);
