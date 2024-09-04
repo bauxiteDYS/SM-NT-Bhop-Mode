@@ -12,9 +12,11 @@ static char g_className[][] = {
 	"Assault",
 	"Support"
 };
-
+static char g_mapName[32];
+Handle hDB;
 ConVar g_cvarTeamBalance;
-float g_topScore[3+1];
+float g_topScore[3+1]; // retrieve from database
+float g_allTimes[NEO_MAXPLAYERS+1][3+1];
 float g_time[NEO_MAXPLAYERS+1];
 float g_newTime[NEO_MAXPLAYERS+1];
 float g_oldTime[NEO_MAXPLAYERS+1];
@@ -52,7 +54,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop and compete with others!",
 	author = "bauxite",
-	version = "0.2.1",
+	version = "0.3.0",
 	url = "",
 };
 
@@ -68,6 +70,7 @@ public void OnPluginStart()
 	{
 		OnMapInit();
 		OnMapStart();
+		OnConfigsExecuted();
 		
 		for(int client = 1; client <= MaxClients; client++)
 		{
@@ -81,10 +84,9 @@ public void OnPluginStart()
 
 public void OnMapInit()
 {
-	char mapName[32];
-	GetCurrentMap(mapName, sizeof(mapName));
+	GetCurrentMap(g_mapName, sizeof(g_mapName));
 	
-	if(StrContains(mapName, "_bhop", false) != -1)
+	if(StrContains(g_mapName, "_bhop", false) != -1)
 	{
 		g_bhopMap = true;
 	}
@@ -95,7 +97,7 @@ public void OnMapInit()
 	
 	if(!g_bhopMap)
 	{
-		return; //fail plugin?
+		return;
 	}
 	
 	HookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
@@ -118,6 +120,14 @@ public void OnMapStart()
 	{
 		FullResetClient(client);
 	}
+}
+
+public void OnConfigsExecuted()
+{
+	if(!g_bhopMap)
+	{
+		return;
+	}
 	
 	g_cvarTeamBalance = FindConVar("neottb_enable");
 	if(g_cvarTeamBalance != null)
@@ -129,6 +139,8 @@ public void OnMapStart()
 	{
 		PrintToServer("[BHOP] Team balancer plugin not found");
 	}
+	
+	DB_init();
 }
 
 public void OnMapEnd()
@@ -141,6 +153,11 @@ public void OnMapEnd()
 	for(int i = 0; i <= 3; i++)
 	{
 		g_topScore[i] = 0.0;
+		
+		for(int c = 0; c <= NEO_MAXPLAYERS; c++)
+		{
+			g_allTimes[c][i] = 0.0;
+		}
 	}
 }
 
@@ -170,10 +187,15 @@ public void OnClientPutInServer(int client)
 	}
 	
 	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
+}
+
+public void OnClientDisconnect_Post(int client)
+{
+	FullResetClient(client);
 	
-	if(!g_lateLoad)
+	for(int c = 1; c <= 3; c++)
 	{
-		FullResetClient(client);
+		g_allTimes[client][c] = 0.0;
 	}
 }
 
@@ -211,6 +233,10 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 
 void HookTriggers()
 {
+	PrintToServer("Hooking triggers");
+	PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
+	PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
+	
 	g_triggerOne = FindEntityByTargetname("trigger_multiple", "bhop_trigger_one");
 	g_triggerTwo = FindEntityByTargetname("trigger_multiple", "bhop_trigger_two");
 	
@@ -222,12 +248,14 @@ void HookTriggers()
 		HookSingleEntityOutput(g_triggerOne, "OnStartTouch", Trigger_OnStartTouchOne);
 		HookSingleEntityOutput(g_triggerTwo, "OnStartTouch", Trigger_OnStartTouchTwo);
 		g_asymMap = false;
+		PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
 	}
 	else if(g_triggerStart != -1 && g_triggerFinish != -1)
 	{
 		HookSingleEntityOutput(g_triggerStart, "OnStartTouch", Trigger_OnStartTouchStart);
 		HookSingleEntityOutput(g_triggerFinish, "OnStartTouch", Trigger_OnStartTouchFinish);
 		g_asymMap = true;
+		PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
 	}
 	else
 	{
@@ -259,6 +287,8 @@ void SetupPlayer(int userid)
 	
 	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
 	PrintToChat(client, "[BHOP] If you touch the same line twice, you are reset");
+	
+	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
 	
 	CreateTimer(1.0, StripPrimaryAndNades, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
@@ -469,11 +499,17 @@ void CheckTime(int client, int class)
 	g_time[client] = g_newTime[client] - g_oldTime[client];
 	PrintToChat(client, "[BHOP] Your time: %f", g_time[client]);
 	ResetClient(client, class);
-	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) // use FloatCompare
+	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0)
 	{
 		g_topScore[class] = g_time[client];
-		PrintToChatAll("[BHOP] New %s record by %N!: %f", g_className[class], client, g_time[client]);
-		PrintToConsoleAll("[BHOP] New %s record by %N!: %f", g_className[class], client, g_time[client]);
+		PrintToChatAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
+		PrintToConsoleAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
+	}
+	if(g_time[client] < g_allTimes[client][class] || g_allTimes[client][class] == 0.0)
+	{
+		g_allTimes[client][class] = g_time[client];
+		DB_insertScore(client, class);
+		PrintToChat(client,"[BHOP] You got your best time for the current session yet on %s", g_className[class]);
 	}
 }
 
@@ -517,4 +553,109 @@ void FullResetClient(int client)
 		g_touchedStart[client] = false;
 		g_touchedFinish[client] = false;
 	}
+}
+
+void DB_init()
+{
+	char error[255];
+	hDB = SQLite_UseDatabase("nt_bhop_plugin_database", error, sizeof(error));
+
+	if(hDB == INVALID_HANDLE)
+	{
+		SetFailState("SQL error: %s", error);
+	}
+		
+	char query[] = "\
+	CREATE TABLE IF NOT EXISTS nt_bhop_scores \
+	(\
+	steamID	TEXT NOT NULL, \
+	mapName	TEXT NOT NULL, \
+	reconTime REAL, \
+	assaultTime REAL, \
+	supportTime REAL, \
+	PRIMARY KEY(steamID, mapName) \
+	);\
+	";
+	
+	SQL_LockDatabase(hDB);
+	SQL_FastQuery(hDB, "VACUUM");
+	SQL_FastQuery(hDB, query);
+	SQL_UnlockDatabase(hDB);
+}
+
+void DB_insertScore(int client, int class)
+{	
+	char mapName[64];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	char steamID[32];
+	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
+
+	float reconTime = g_allTimes[client][CLASS_RECON];
+	float assaultTime = g_allTimes[client][CLASS_ASSAULT];
+	float supportTime = g_allTimes[client][CLASS_SUPPORT];
+	
+	char query[1664];
+	
+	Format(query, sizeof(query), 
+	"\
+	INSERT INTO nt_bhop_scores(steamID, mapName, reconTime, assaultTime, supportTime) \
+	VALUES ('%s', '%s', %f, %f, %f) \
+	ON CONFLICT(steamID, mapName) \
+	DO UPDATE SET \
+	reconTime = CASE WHEN nt_bhop_scores.reconTime IS NULL OR nt_bhop_scores.reconTime = 0.0 \
+	THEN excluded.reconTime \
+	ELSE MIN(nt_bhop_scores.reconTime, excluded.reconTime) END, \
+	assaultTime = CASE WHEN nt_bhop_scores.assaultTime IS NULL OR nt_bhop_scores.assaultTime = 0.0 \
+	THEN excluded.assaultTime \
+	ELSE MIN(nt_bhop_scores.assaultTime, excluded.assaultTime) END, \
+	supportTime = CASE WHEN nt_bhop_scores.supportTime IS NULL OR nt_bhop_scores.supportTime = 0.0 \
+	THEN excluded.supportTime \
+	ELSE MIN(nt_bhop_scores.supportTime, excluded.supportTime) END;\
+	",
+	steamID, mapName, reconTime, assaultTime, supportTime);
+	
+	SQL_LockDatabase(hDB);
+	SQL_FastQuery(hDB, query);
+	SQL_UnlockDatabase(hDB);
+}
+
+void DB_retrieveScore(int client)
+{
+	char mapName[64];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	char steamID[32];
+	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
+	
+	char query[] = 
+	"\
+	SELECT reconTime, assaultTime, supportTime \
+	FROM nt_bhop_scores \
+	WHERE steamID = '123' \
+	AND mapName = 'rise';\
+	";
+	
+	SQL_TQuery(hDB, DB_retrieveScoreCallback, query);
+}
+
+public void DB_retrieveScoreCallback(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == INVALID_HANDLE)
+	{
+		LogError("SQL Error: %s", error);
+		return;
+	}
+
+	if (SQL_GetRowCount(hndl) == 0)
+		return;
+
+	if (!SQL_FetchRow(hndl))
+		return;
+
+	float reconTime = SQL_FetchFloat(hndl, 0);
+	float assaultTime = SQL_FetchFloat(hndl, 1);
+	float supportTime = SQL_FetchFloat(hndl, 2);
+
+	PrintToServer("%f %f %f", reconTime, assaultTime, supportTime);
 }
