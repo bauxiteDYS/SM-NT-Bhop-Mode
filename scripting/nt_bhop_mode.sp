@@ -169,7 +169,7 @@ public Action Cmd_ClientScores(int client, int args)
 		return Plugin_Handled;
 	}
 
-	DB_retrieveScore(client);
+	RequestFrame(DB_retrieveScore, client);
 	return Plugin_Handled;
 }
 
@@ -607,22 +607,28 @@ void DB_insertScore(int client, int class)
 	float supportTime = g_allTimes[client][CLASS_SUPPORT];
 	
 	char query[1664];
-	// fix inserting 0.0 overriding any non null/0 value
+	
 	hDB.Format(query, sizeof(query), 
 	"\
 	INSERT INTO nt_bhop_scores(steamID, mapName, reconTime, assaultTime, supportTime) \
 	VALUES ('%s', '%s', %f, %f, %f) \
 	ON CONFLICT(steamID, mapName) \
 	DO UPDATE SET \
-	reconTime = CASE WHEN nt_bhop_scores.reconTime IS NULL OR nt_bhop_scores.reconTime = 0.0 \
+	reconTime = CASE \
+	WHEN excluded.reconTime > 0.0 AND (nt_bhop_scores.reconTime = 0.0 OR excluded.reconTime < nt_bhop_scores.reconTime) \
 	THEN excluded.reconTime \
-	ELSE MIN(nt_bhop_scores.reconTime, excluded.reconTime) END, \
-	assaultTime = CASE WHEN nt_bhop_scores.assaultTime IS NULL OR nt_bhop_scores.assaultTime = 0.0 \
+	ELSE nt_bhop_scores.reconTime \
+	END,\
+	assaultTime = CASE \
+	WHEN excluded.assaultTime > 0.0 AND (nt_bhop_scores.assaultTime = 0.0 OR excluded.assaultTime < nt_bhop_scores.assaultTime) \
 	THEN excluded.assaultTime \
-	ELSE MIN(nt_bhop_scores.assaultTime, excluded.assaultTime) END, \
-	supportTime = CASE WHEN nt_bhop_scores.supportTime IS NULL OR nt_bhop_scores.supportTime = 0.0 \
+	ELSE nt_bhop_scores.assaultTime \
+	END, \
+	supportTime = CASE \
+	WHEN excluded.supportTime > 0.0 AND (nt_bhop_scores.supportTime = 0.0 OR excluded.supportTime < nt_bhop_scores.supportTime) \
 	THEN excluded.supportTime \
-	ELSE MIN(nt_bhop_scores.supportTime, excluded.supportTime) END;\
+	ELSE nt_bhop_scores.supportTime \
+	END;\
 	",
 	steamID, mapName, reconTime, assaultTime, supportTime);
 	
