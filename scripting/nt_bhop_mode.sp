@@ -12,9 +12,10 @@ static char g_className[][] = {
 	"Assault",
 	"Support"
 };
-static char g_mapName[32];
-Handle hDB;
+
+Database hDB;
 ConVar g_cvarTeamBalance;
+static char g_mapName[32];
 float g_topScore[3+1]; // retrieve from database
 float g_allTimes[NEO_MAXPLAYERS+1][3+1];
 float g_time[NEO_MAXPLAYERS+1];
@@ -52,10 +53,10 @@ int FindEntityByTargetname(const char[] classname, const char[] targetname)
 
 public Plugin myinfo = {
 	name = "Bhop Game Mode",
-	description = "Test how fast you can bhop and compete with others!",
+	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.3.0",
-	url = "",
+	version = "0.3.3",
+	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -102,9 +103,9 @@ public void OnMapInit()
 	
 	HookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
 	HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
-	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post);
+	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post); //remove on map end?
 	AddCommandListener(OnTeam, "jointeam");
-	RegConsoleCmd("sm_bhoprecords", Cmd_BhopScores); //remove on map end?
+	RegConsoleCmd("sm_myscores", Cmd_ClientScores);
 }
 
 public void OnMapStart()
@@ -161,22 +162,15 @@ public void OnMapEnd()
 	}
 }
 
-public Action Cmd_BhopScores(int client, int args)
+public Action Cmd_ClientScores(int client, int args)
 {
 	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
 	{
 		return Plugin_Handled;
 	}
 
-	RequestFrame(PrintRecords, client);
+	DB_retrieveScore(client);
 	return Plugin_Handled;
-}
-
-void PrintRecords(int client)
-{
-	PrintToConsole(client, "[BHOP] Record: Recon: %f", g_topScore[CLASS_RECON]);
-	PrintToConsole(client, "[BHOP] Record: Assault: %f", g_topScore[CLASS_ASSAULT]);
-	PrintToConsole(client, "[BHOP] Record: Support: %f", g_topScore[CLASS_SUPPORT]);
 }
 
 public void OnClientPutInServer(int client)
@@ -499,7 +493,7 @@ void CheckTime(int client, int class)
 	g_time[client] = g_newTime[client] - g_oldTime[client];
 	PrintToChat(client, "[BHOP] Your time: %f", g_time[client]);
 	ResetClient(client, class);
-	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0)
+	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) //use floatcompare?
 	{
 		g_topScore[class] = g_time[client];
 		PrintToChatAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
@@ -562,10 +556,16 @@ void DB_init()
 
 	if(hDB == INVALID_HANDLE)
 	{
-		SetFailState("SQL error: %s", error);
+		SetFailState("[BHOP] SQL error: %s", error);
 	}
-		
-	char query[] = "\
+	
+	Transaction txn;
+	txn = SQL_CreateTransaction();
+	
+	char query[512];
+	
+	hDB.Format(query, sizeof(query), 
+	"\
 	CREATE TABLE IF NOT EXISTS nt_bhop_scores \
 	(\
 	steamID	TEXT NOT NULL, \
@@ -575,12 +575,23 @@ void DB_init()
 	supportTime REAL, \
 	PRIMARY KEY(steamID, mapName) \
 	);\
-	";
+	");
 	
-	SQL_LockDatabase(hDB);
-	SQL_FastQuery(hDB, "VACUUM");
-	SQL_FastQuery(hDB, query);
-	SQL_UnlockDatabase(hDB);
+	hDB.Query(DB_fast_callback, "VACUUM", _, DBPrio_High);
+	
+	txn.AddQuery(query);
+	
+	hDB.Execute(txn, TxnSuccess_Init, TxnFailure_Init);
+}
+
+void TxnSuccess_Init(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+    PrintToServer("[BHOP] SQL Database init succesful");
+}
+
+void TxnFailure_Init(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+    SetFailState("[BHOP] SQL Error Database init failure: [%d] %s", failIndex, error);
 }
 
 void DB_insertScore(int client, int class)
@@ -596,8 +607,8 @@ void DB_insertScore(int client, int class)
 	float supportTime = g_allTimes[client][CLASS_SUPPORT];
 	
 	char query[1664];
-	
-	Format(query, sizeof(query), 
+	// fix inserting 0.0 overriding any non null/0 value
+	hDB.Format(query, sizeof(query), 
 	"\
 	INSERT INTO nt_bhop_scores(steamID, mapName, reconTime, assaultTime, supportTime) \
 	VALUES ('%s', '%s', %f, %f, %f) \
@@ -615,9 +626,20 @@ void DB_insertScore(int client, int class)
 	",
 	steamID, mapName, reconTime, assaultTime, supportTime);
 	
-	SQL_LockDatabase(hDB);
-	SQL_FastQuery(hDB, query);
-	SQL_UnlockDatabase(hDB);
+	hDB.Query(DB_fast_callback, query, _, DBPrio_Normal);
+}
+
+void DB_fast_callback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (!db || !results || error[0])
+    {
+        LogError("[BHOP] SQL Error: %s", error);
+        return;
+    }
+	else
+	{
+		PrintToServer("[BHOP] Some SQL thing was succesful");
+	}
 }
 
 void DB_retrieveScore(int client)
@@ -628,34 +650,52 @@ void DB_retrieveScore(int client)
 	char steamID[32];
 	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
 	
-	char query[] = 
+	char query[512];
+	
+	hDB.Format(query, sizeof(query), 
 	"\
 	SELECT reconTime, assaultTime, supportTime \
 	FROM nt_bhop_scores \
-	WHERE steamID = '123' \
-	AND mapName = 'rise';\
-	";
+	WHERE steamID = '%s' \
+	AND mapName = '%s';\
+	",
+	steamID, mapName);
 	
-	SQL_TQuery(hDB, DB_retrieveScoreCallback, query);
+	int userid = GetClientUserId(client);
+	
+	hDB.Query(DB_results_callback, query, userid, DBPrio_Normal);
 }
 
-public void DB_retrieveScoreCallback(Handle owner, Handle hndl, const char[] error, any data)
+void DB_results_callback(Database db, DBResultSet results, const char[] error, int userid)
 {
-	if (hndl == INVALID_HANDLE)
+	if (!db || !results || error[0])
 	{
-		LogError("SQL Error: %s", error);
+		LogError("[BHOP] SQL Error: %s", error);
 		return;
 	}
 
-	if (SQL_GetRowCount(hndl) == 0)
+	if (SQL_GetRowCount(results) == 0)
+	{
 		return;
-
-	if (!SQL_FetchRow(hndl))
+	}
+	
+	if (!SQL_FetchRow(results))
+	{
 		return;
+	}
+	
+	int client = GetClientOfUserId(userid);
+	
+	if(client <= 0 || client > MaxClients)
+	{
+		return;
+	}
+	
+	float reconTime = SQL_FetchFloat(results, 0);
+	float assaultTime = SQL_FetchFloat(results, 1);
+	float supportTime = SQL_FetchFloat(results, 2);
 
-	float reconTime = SQL_FetchFloat(hndl, 0);
-	float assaultTime = SQL_FetchFloat(hndl, 1);
-	float supportTime = SQL_FetchFloat(hndl, 2);
-
-	PrintToServer("%f %f %f", reconTime, assaultTime, supportTime);
+	PrintToConsole(client, "[BHOP] Your Recon top score for %s: %f", g_mapName, reconTime);
+	PrintToConsole(client, "[BHOP] Your Assault top score for %s: %f", g_mapName, assaultTime);
+	PrintToConsole(client, "[BHOP] Your Support top score for %s: %f", g_mapName, supportTime);
 }
