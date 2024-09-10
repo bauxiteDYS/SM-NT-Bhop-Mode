@@ -106,6 +106,7 @@ public void OnMapInit()
 	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post); //remove on map end?
 	AddCommandListener(OnTeam, "jointeam");
 	RegConsoleCmd("sm_myscores", Cmd_ClientScores);
+	RegConsoleCmd("sm_topscores", Cmd_TopScores);
 }
 
 public void OnMapStart()
@@ -170,6 +171,18 @@ public Action Cmd_ClientScores(int client, int args)
 	}
 
 	RequestFrame(DB_retrieveScore, client);
+	return Plugin_Handled;
+}
+
+public Action Cmd_TopScores(int client, int args)
+{
+	/*
+	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
+	{
+		return Plugin_Handled;
+	}
+	*/
+	RequestFrame(DB_retrieveTopScore);
 	return Plugin_Handled;
 }
 
@@ -570,9 +583,9 @@ void DB_init()
 	(\
 	steamID	TEXT NOT NULL, \
 	mapName	TEXT NOT NULL, \
-	reconTime REAL, \
-	assaultTime REAL, \
-	supportTime REAL, \
+	reconTime REAL NOT NULL DEFAULT 0.0, \
+	assaultTime REAL NOT NULL DEFAULT 0.0, \
+	supportTime REAL NOT NULL DEFAULT 0.0, \
 	PRIMARY KEY(steamID, mapName) \
 	);\
 	");
@@ -704,4 +717,54 @@ void DB_results_callback(Database db, DBResultSet results, const char[] error, i
 	PrintToConsole(client, "[BHOP] Your Recon top score for %s: %f", g_mapName, reconTime);
 	PrintToConsole(client, "[BHOP] Your Assault top score for %s: %f", g_mapName, assaultTime);
 	PrintToConsole(client, "[BHOP] Your Support top score for %s: %f", g_mapName, supportTime);
+}
+
+void DB_retrieveTopScore()
+{
+	char mapName[64];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	char query[512];
+	
+	hDB.Format(query, sizeof(query), 
+	"\
+	SELECT steamID, reconTime \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' \
+	AND reconTime = (SELECT MIN(reconTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' \
+	AND reconTime > 0.0) \
+	LIMIT 1;\
+	",
+	mapName, mapName);
+	
+	hDB.Query(DB_top_callback, query, _, DBPrio_Normal);
+}
+
+void DB_top_callback(Database db, DBResultSet results, const char[] error, int userid)
+{
+	if (!db || !results || error[0])
+	{
+		LogError("[BHOP] SQL Error: %s", error);
+		return;
+	}
+
+	if (SQL_GetRowCount(results) == 0)
+	{
+		return;
+	}
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+
+	char steamID[65];
+	float reconTime;
+	
+	SQL_FetchString(results, 0, steamID, sizeof(steamID));
+	reconTime = SQL_FetchFloat(results, 1);
+
+	PrintToServer("Top recon: %s Time: %f", steamID, reconTime);
 }
