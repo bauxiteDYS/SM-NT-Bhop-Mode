@@ -607,7 +607,7 @@ void TxnFailure_Init(Database db, any data, int numQueries, const char[] error, 
     SetFailState("[BHOP] SQL Error Database init failure: [%d] %s", failIndex, error);
 }
 
-void DB_insertScore(int client, int class)
+void DB_insertScore(int client, int class) // only insert 1 record at a time perhaps
 {	
 	char mapName[64];
 	GetCurrentMap(mapName, sizeof(mapName));
@@ -724,20 +724,23 @@ void DB_retrieveTopScore()
 	char mapName[64];
 	GetCurrentMap(mapName, sizeof(mapName));
 	
-	char query[512];
+	char query[1664];
 	
 	hDB.Format(query, sizeof(query), 
 	"\
 	SELECT steamID, reconTime \
 	FROM nt_bhop_scores \
-	WHERE mapName = '%s' \
-	AND reconTime = (SELECT MIN(reconTime) \
+	WHERE mapName = '%s' AND reconTime = (SELECT MIN(reconTime) FROM nt_bhop_scores WHERE mapName = '%s' AND reconTime > 0.0) \
+	UNION ALL \
+	SELECT steamID, assaultTime \
 	FROM nt_bhop_scores \
-	WHERE mapName = '%s' \
-	AND reconTime > 0.0) \
-	LIMIT 1;\
+	WHERE mapName = '%s' AND assaultTime = (SELECT MIN(assaultTime) FROM nt_bhop_scores WHERE mapName = '%s' AND assaultTime > 0.0) \
+	UNION ALL \
+	SELECT steamID, supportTime \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND supportTime = (SELECT MIN(supportTime) FROM nt_bhop_scores WHERE mapName = '%s' AND supportTime > 0.0); \
 	",
-	mapName, mapName);
+	mapName, mapName, mapName, mapName, mapName, mapName);
 	
 	hDB.Query(DB_top_callback, query, _, DBPrio_Normal);
 }
@@ -749,8 +752,11 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 		LogError("[BHOP] SQL Error: %s", error);
 		return;
 	}
-
-	if (SQL_GetRowCount(results) == 0)
+	
+	int rowCount = SQL_GetRowCount(results);
+	PrintToServer("row count %d", rowCount);
+	
+	if (rowCount == 0)
 	{
 		return;
 	}
@@ -761,10 +767,27 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	}
 
 	char steamID[65];
-	float reconTime;
+	float time;
 	
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
-	reconTime = SQL_FetchFloat(results, 1);
-
-	PrintToServer("Top recon: %s Time: %f", steamID, reconTime);
+	time = SQL_FetchFloat(results, 1);
+	PrintToServer("Top Recon: %s Time: %f", steamID, time);
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+	
+	SQL_FetchString(results, 0, steamID, sizeof(steamID));
+	time = SQL_FetchFloat(results, 1);
+	PrintToServer("Top Assault: %s Time: %f", steamID, time);
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+	
+	SQL_FetchString(results, 0, steamID, sizeof(steamID));
+	time = SQL_FetchFloat(results, 1);
+	PrintToServer("Top Support: %s Time: %f", steamID, time);
 }
