@@ -726,6 +726,7 @@ void DB_retrieveTopScore()
 	
 	char query[1664];
 	
+	/*
 	hDB.Format(query, sizeof(query), 
 	"\
 	SELECT steamID, reconTime \
@@ -741,6 +742,23 @@ void DB_retrieveTopScore()
 	WHERE mapName = '%s' AND supportTime = (SELECT MIN(supportTime) FROM nt_bhop_scores WHERE mapName = '%s' AND supportTime > 0.0); \
 	",
 	mapName, mapName, mapName, mapName, mapName, mapName);
+	*/
+	
+	hDB.Format(query, sizeof(query), 
+	"\
+	SELECT steamID, MIN(reconTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND reconTime > 0.0 \
+	UNION ALL \
+	SELECT steamID, MIN(assaultTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND assaultTime > 0.0 \
+	UNION ALL \
+	SELECT steamID, MIN(supportTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND supportTime > 0.0; \
+	",
+	mapName, mapName, mapName);
 	
 	hDB.Query(DB_top_callback, query, _, DBPrio_Normal);
 }
