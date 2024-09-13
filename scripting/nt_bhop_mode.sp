@@ -165,6 +165,11 @@ public void OnMapEnd()
 
 public Action Cmd_ClientScores(int client, int args)
 {
+	if(!g_bhopMap)
+	{
+		return Plugin_Handled;
+	}
+	
 	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
 	{
 		return Plugin_Handled;
@@ -176,12 +181,11 @@ public Action Cmd_ClientScores(int client, int args)
 
 public Action Cmd_TopScores(int client, int args)
 {
-	/*
-	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
+	if(!IsClientInGame(client) || client < 0 || client > MaxClients || args > 0)
 	{
 		return Plugin_Handled;
 	}
-	*/
+	
 	RequestFrame(DB_retrieveTopScore);
 	return Plugin_Handled;
 }
@@ -198,6 +202,11 @@ public void OnClientPutInServer(int client)
 
 public void OnClientDisconnect_Post(int client)
 {
+	if(!g_bhopMap)
+	{
+		return;
+	}
+	
 	FullResetClient(client);
 	
 	for(int c = 1; c <= 3; c++)
@@ -726,24 +735,6 @@ void DB_retrieveTopScore()
 	
 	char query[1664];
 	
-	/*
-	hDB.Format(query, sizeof(query), 
-	"\
-	SELECT steamID, reconTime \
-	FROM nt_bhop_scores \
-	WHERE mapName = '%s' AND reconTime = (SELECT MIN(reconTime) FROM nt_bhop_scores WHERE mapName = '%s' AND reconTime > 0.0) \
-	UNION ALL \
-	SELECT steamID, assaultTime \
-	FROM nt_bhop_scores \
-	WHERE mapName = '%s' AND assaultTime = (SELECT MIN(assaultTime) FROM nt_bhop_scores WHERE mapName = '%s' AND assaultTime > 0.0) \
-	UNION ALL \
-	SELECT steamID, supportTime \
-	FROM nt_bhop_scores \
-	WHERE mapName = '%s' AND supportTime = (SELECT MIN(supportTime) FROM nt_bhop_scores WHERE mapName = '%s' AND supportTime > 0.0); \
-	",
-	mapName, mapName, mapName, mapName, mapName, mapName);
-	*/
-	
 	hDB.Format(query, sizeof(query), 
 	"\
 	SELECT steamID, MIN(reconTime) \
@@ -772,7 +763,7 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	}
 	
 	int rowCount = SQL_GetRowCount(results);
-	PrintToServer("row count %d", rowCount);
+	//PrintToServer("row count %d", rowCount);
 	
 	if (rowCount == 0)
 	{
@@ -789,7 +780,7 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
-	PrintToServer("Top Recon: %s Time: %f", steamID, time);
+	PrintToConsoleAll("Top Recon: %s Time: %f", steamID, time);
 	
 	if (!SQL_FetchRow(results))
 	{
@@ -798,7 +789,7 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
-	PrintToServer("Top Assault: %s Time: %f", steamID, time);
+	PrintToConsoleAll("Top Assault: %s Time: %f", steamID, time);
 	
 	if (!SQL_FetchRow(results))
 	{
@@ -807,5 +798,5 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
-	PrintToServer("Top Support: %s Time: %f", steamID, time);
+	PrintToConsoleAll("Top Support: %s Time: %f", steamID, time);
 }
