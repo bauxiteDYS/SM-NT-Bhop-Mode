@@ -13,8 +13,11 @@ static char g_className[][] = {
 	"Support"
 };
 
+Database hDB;
 ConVar g_cvarTeamBalance;
-float g_topScore[3+1];
+static char g_mapName[32];
+float g_topScore[3+1]; // retrieve from database
+float g_allTimes[NEO_MAXPLAYERS+1][3+1];
 float g_time[NEO_MAXPLAYERS+1];
 float g_newTime[NEO_MAXPLAYERS+1];
 float g_oldTime[NEO_MAXPLAYERS+1];
@@ -22,6 +25,7 @@ bool g_touchedOne[NEO_MAXPLAYERS+1];
 bool g_touchedTwo[NEO_MAXPLAYERS+1];
 bool g_touchedStart[NEO_MAXPLAYERS+1];
 bool g_touchedFinish[NEO_MAXPLAYERS+1];
+bool g_inBhopArea[NEO_MAXPLAYERS+1];
 bool g_bhopMap;
 bool g_asymMap;
 bool g_lateLoad;
@@ -29,6 +33,7 @@ int g_triggerOne;
 int g_triggerTwo;
 int g_triggerStart;
 int g_triggerFinish;
+int g_triggerBhopArea;
 
 int FindEntityByTargetname(const char[] classname, const char[] targetname)
 {
@@ -50,10 +55,10 @@ int FindEntityByTargetname(const char[] classname, const char[] targetname)
 
 public Plugin myinfo = {
 	name = "Bhop Game Mode",
-	description = "Test how fast you can bhop and compete with others!",
+	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.2.1",
-	url = "",
+	version = "0.3.6",
+	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -68,6 +73,7 @@ public void OnPluginStart()
 	{
 		OnMapInit();
 		OnMapStart();
+		OnConfigsExecuted();
 		
 		for(int client = 1; client <= MaxClients; client++)
 		{
@@ -81,10 +87,9 @@ public void OnPluginStart()
 
 public void OnMapInit()
 {
-	char mapName[32];
-	GetCurrentMap(mapName, sizeof(mapName));
+	GetCurrentMap(g_mapName, sizeof(g_mapName));
 	
-	if(StrContains(mapName, "_bhop", false) != -1)
+	if(StrContains(g_mapName, "_bhop", false) != -1)
 	{
 		g_bhopMap = true;
 	}
@@ -95,14 +100,15 @@ public void OnMapInit()
 	
 	if(!g_bhopMap)
 	{
-		return; //fail plugin?
+		return;
 	}
 	
 	HookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
 	HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
-	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post);
+	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post); //remove on map end?
 	AddCommandListener(OnTeam, "jointeam");
-	RegConsoleCmd("sm_bhoprecords", Cmd_BhopScores); //remove on map end?
+	RegConsoleCmd("sm_myscores", Cmd_ClientScores);
+	RegConsoleCmd("sm_topscores", Cmd_TopScores);
 }
 
 public void OnMapStart()
@@ -118,6 +124,14 @@ public void OnMapStart()
 	{
 		FullResetClient(client);
 	}
+}
+
+public void OnConfigsExecuted()
+{
+	if(!g_bhopMap)
+	{
+		return;
+	}
 	
 	g_cvarTeamBalance = FindConVar("neottb_enable");
 	if(g_cvarTeamBalance != null)
@@ -129,6 +143,8 @@ public void OnMapStart()
 	{
 		PrintToServer("[BHOP] Team balancer plugin not found");
 	}
+	
+	DB_init();
 }
 
 public void OnMapEnd()
@@ -141,25 +157,39 @@ public void OnMapEnd()
 	for(int i = 0; i <= 3; i++)
 	{
 		g_topScore[i] = 0.0;
+		
+		for(int c = 0; c <= NEO_MAXPLAYERS; c++)
+		{
+			g_allTimes[c][i] = 0.0;
+		}
 	}
 }
 
-public Action Cmd_BhopScores(int client, int args)
+public Action Cmd_ClientScores(int client, int args)
 {
+	if(!g_bhopMap)
+	{
+		return Plugin_Handled;
+	}
+	
 	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
 	{
 		return Plugin_Handled;
 	}
 
-	RequestFrame(PrintRecords, client);
+	RequestFrame(DB_retrieveScore, client);
 	return Plugin_Handled;
 }
 
-void PrintRecords(int client)
+public Action Cmd_TopScores(int client, int args)
 {
-	PrintToConsole(client, "[BHOP] Record: Recon: %f", g_topScore[CLASS_RECON]);
-	PrintToConsole(client, "[BHOP] Record: Assault: %f", g_topScore[CLASS_ASSAULT]);
-	PrintToConsole(client, "[BHOP] Record: Support: %f", g_topScore[CLASS_SUPPORT]);
+	if(!IsClientInGame(client) || client < 0 || client > MaxClients || args > 0)
+	{
+		return Plugin_Handled;
+	}
+	
+	RequestFrame(DB_retrieveTopScore);
+	return Plugin_Handled;
 }
 
 public void OnClientPutInServer(int client)
@@ -170,10 +200,22 @@ public void OnClientPutInServer(int client)
 	}
 	
 	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
-	
-	if(!g_lateLoad)
+}
+
+public void OnClientDisconnect_Post(int client)
+{
+	if(!g_bhopMap)
 	{
-		FullResetClient(client);
+		return;
+	}
+	
+	FullResetClient(client);
+	
+	g_inBhopArea[client] = false;
+	
+	for(int c = 1; c <= 3; c++)
+	{
+		g_allTimes[client][c] = 0.0;
 	}
 }
 
@@ -211,6 +253,12 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 
 void HookTriggers()
 {
+	PrintToServer("Hooking triggers");
+	PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
+	PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
+	
+	g_triggerBhopArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_bhoparea");
+	
 	g_triggerOne = FindEntityByTargetname("trigger_multiple", "bhop_trigger_one");
 	g_triggerTwo = FindEntityByTargetname("trigger_multiple", "bhop_trigger_two");
 	
@@ -222,12 +270,25 @@ void HookTriggers()
 		HookSingleEntityOutput(g_triggerOne, "OnStartTouch", Trigger_OnStartTouchOne);
 		HookSingleEntityOutput(g_triggerTwo, "OnStartTouch", Trigger_OnStartTouchTwo);
 		g_asymMap = false;
+		PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
 	}
 	else if(g_triggerStart != -1 && g_triggerFinish != -1)
 	{
 		HookSingleEntityOutput(g_triggerStart, "OnStartTouch", Trigger_OnStartTouchStart);
 		HookSingleEntityOutput(g_triggerFinish, "OnStartTouch", Trigger_OnStartTouchFinish);
 		g_asymMap = true;
+		PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
+	}
+	else
+	{
+		PrintToChatAll("[BHOP] Error: Plugin has failed");
+		SetFailState("[BHOP] Error: Triggers were not found");
+	}
+	
+	if(g_triggerBhopArea != -1)
+	{
+		HookSingleEntityOutput(g_triggerBhopArea, "OnStartTouch", Trigger_OnStartTouchBhopArea);
+		HookSingleEntityOutput(g_triggerBhopArea, "OnEndTouch", Trigger_OnEndTouchBhopArea);
 	}
 	else
 	{
@@ -258,12 +319,14 @@ void SetupPlayer(int userid)
 	}
 	
 	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
-	PrintToChat(client, "[BHOP] If you touch the same line twice, you are reset");
+	PrintToChat(client, "[BHOP] If you touch the same line twice from outside the bhop area you are reset");
 	
-	CreateTimer(1.0, StripPrimaryAndNades, userid, TIMER_FLAG_NO_MAPCHANGE);
+	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
+	
+	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public Action StripPrimaryAndNades(Handle timer, int userid)
+public Action StripWeps(Handle timer, int userid) // GIVE kyla to sup
 {
 	int client = GetClientOfUserId(userid);
 	
@@ -322,6 +385,7 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
 	}
 	
 	FullResetClient(client);
+	g_inBhopArea[client] = false;
 }
 
 public Action OnWeaponDrop(int client, int weapon)
@@ -334,6 +398,16 @@ public Action OnWeaponDrop(int client, int weapon)
 	return Plugin_Handled;
 }
 
+void Trigger_OnStartTouchBhopArea(const char[] output, int caller, int activator, float delay)
+{
+	g_inBhopArea[activator] = true;
+}
+
+void Trigger_OnEndTouchBhopArea(const char[] output, int caller, int activator, float delay)
+{
+	g_inBhopArea[activator] = false;
+}
+
 void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, float delay)
 {
 	int class = GetPlayerClass(activator);
@@ -344,19 +418,24 @@ void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, flo
 		FullResetClient(activator);
 	}
 	
-	if(g_touchedOne[activator])
+	if(g_touchedOne[activator] && !g_inBhopArea[activator])
 	{
 		ResetClient(activator, class, true);
 		return;
 	}
+	else if (g_touchedOne[activator] && g_inBhopArea[activator])
+	{
+		PrintToChat(activator, "[BHOP] Go towards the other line!");
+		return;
+	}
 	
-	if(!g_touchedTwo[activator])
+	if(!g_touchedTwo[activator] && !g_inBhopArea[activator])
 	{
 		g_touchedOne[activator] = true;
 		StartHop(activator);
 		return;
 	}
-	else
+	else if(g_touchedTwo[activator])
 	{
 		CheckTime(activator, class);
 	}
@@ -372,19 +451,24 @@ void Trigger_OnStartTouchTwo(const char[] output, int caller, int activator, flo
 		FullResetClient(activator);
 	}
 	
-	if(g_touchedTwo[activator])
+	if(g_touchedTwo[activator] && !g_inBhopArea[activator])
 	{
 		ResetClient(activator, class, true);
 		return;
 	}
+	else if (g_touchedTwo[activator] && g_inBhopArea[activator])
+	{
+		PrintToChat(activator, "[BHOP] Go towards the other line!");
+		return;
+	}
 	
-	if(!g_touchedOne[activator])
+	if(!g_touchedOne[activator] && !g_inBhopArea[activator])
 	{
 		g_touchedTwo[activator] = true;
 		StartHop(activator);
 		return;
 	}
-	else
+	else if(g_touchedOne[activator])
 	{
 		CheckTime(activator, class);
 	}	
@@ -400,22 +484,27 @@ void Trigger_OnStartTouchStart(const char[] output, int caller, int activator, f
 		FullResetClient(activator);
 	}
 	
-	if(g_touchedStart[activator])
-	{
-		ResetClient(activator, class, true);
-		return;
-	}
-	
-	if(!g_touchedFinish[activator])
+	if(!g_touchedStart[activator] && !g_touchedFinish[activator] && !g_inBhopArea[activator])
 	{
 		g_touchedStart[activator] = true;
 		StartHop(activator);
 		return;
 	}
-	else
+	else if(g_touchedFinish[activator])
 	{
-		PrintToChat(activator, "[BHOP] Error: Something went wrong, you have been reset");
-		FullResetClient(activator);
+		PrintToChat(activator, "[BHOP] Error: Something went wrong");
+		return;
+	}
+	
+	if(g_touchedStart[activator] && !g_inBhopArea[activator])
+	{
+		ResetClient(activator, class, true);
+		return;
+	}
+	else if (g_touchedStart[activator] && g_inBhopArea[activator])
+	{
+		PrintToChat(activator, "[BHOP] Go towards the finish line!");
+		return;
 	}
 }
 
@@ -429,21 +518,23 @@ void Trigger_OnStartTouchFinish(const char[] output, int caller, int activator, 
 		FullResetClient(activator);
 	}
 	
+	/*
 	if(g_touchedFinish[activator])
 	{
 		ResetClient(activator, class, true);
 		return;
 	}
+	*/
 	
 	g_touchedFinish[activator] = true;
 	
 	if(!g_touchedStart[activator])
 	{
 		ResetClient(activator, class);
-		PrintToChat(activator, "[BHOP] Star your bhop from the start line!");
+		PrintToChat(activator, "[BHOP] Start your bhop from the start line!");
 		return;
 	}
-	else
+	else if(g_touchedStart[activator])
 	{
 		CheckTime(activator, class);
 	}	
@@ -452,6 +543,8 @@ void Trigger_OnStartTouchFinish(const char[] output, int caller, int activator, 
 void StartHop(int client)
 {
 	g_oldTime[client] = GetGameTime();
+	
+	SetEntityHealth(client, 50);
 	
 	if(!g_asymMap)
 	{
@@ -469,13 +562,22 @@ void CheckTime(int client, int class)
 	g_time[client] = g_newTime[client] - g_oldTime[client];
 	PrintToChat(client, "[BHOP] Your time: %f", g_time[client]);
 	ResetClient(client, class);
-	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) // use FloatCompare
+	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) //use floatcompare?
 	{
 		g_topScore[class] = g_time[client];
-		PrintToChatAll("[BHOP] New %s record by %N!: %f", g_className[class], client, g_time[client]);
-		PrintToConsoleAll("[BHOP] New %s record by %N!: %f", g_className[class], client, g_time[client]);
+		PrintToChatAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
+		PrintToConsoleAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
+	}
+	if(g_time[client] < g_allTimes[client][class] || g_allTimes[client][class] == 0.0)
+	{
+		g_allTimes[client][class] = g_time[client];
+		DB_insertScore(client, class);
+		PrintToChat(client,"[BHOP] You got your best time for the current session yet on %s", g_className[class]);
 	}
 }
+
+
+//void ResetClient(int client, int class)
 
 void ResetClient(int client, int class, bool same=false)
 {
@@ -490,7 +592,12 @@ void ResetClient(int client, int class, bool same=false)
 		g_touchedFinish[client] = false;
 	}
 	
-	if(class != CLASS_SUPPORT)
+	if(IsClientInGame(client) && IsPlayerAlive(client))
+	{
+		SetEntityHealth(client, 100);
+	}
+	
+	if(IsClientInGame(client) && class != CLASS_SUPPORT)
 	{
 		SetPlayerAUX(client, 100.0);
 	}
@@ -507,6 +614,11 @@ void FullResetClient(int client)
 	g_newTime[client] = 0.0;
 	g_oldTime[client] = 0.0;
 	
+	if(IsClientInGame(client) && IsPlayerAlive(client))
+	{
+		SetEntityHealth(client, 100);
+	}
+	
 	if(!g_asymMap)
 	{
 		g_touchedOne[client] = false;
@@ -517,4 +629,234 @@ void FullResetClient(int client)
 		g_touchedStart[client] = false;
 		g_touchedFinish[client] = false;
 	}
+}
+
+void DB_init()
+{
+	char error[255];
+	hDB = SQLite_UseDatabase("nt_bhop_plugin_database", error, sizeof(error));
+
+	if(hDB == INVALID_HANDLE)
+	{
+		SetFailState("[BHOP] SQL error: %s", error);
+	}
+	
+	Transaction txn;
+	txn = SQL_CreateTransaction();
+	
+	char query[512];
+	
+	hDB.Format(query, sizeof(query), 
+	"\
+	CREATE TABLE IF NOT EXISTS nt_bhop_scores \
+	(\
+	steamID	TEXT NOT NULL, \
+	mapName	TEXT NOT NULL, \
+	reconTime REAL NOT NULL DEFAULT 0.0, \
+	assaultTime REAL NOT NULL DEFAULT 0.0, \
+	supportTime REAL NOT NULL DEFAULT 0.0, \
+	PRIMARY KEY(steamID, mapName) \
+	);\
+	");
+	
+	hDB.Query(DB_fast_callback, "VACUUM", _, DBPrio_High);
+	
+	txn.AddQuery(query);
+	
+	hDB.Execute(txn, TxnSuccess_Init, TxnFailure_Init);
+}
+
+void TxnSuccess_Init(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+    PrintToServer("[BHOP] SQL Database init succesful");
+}
+
+void TxnFailure_Init(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+    SetFailState("[BHOP] SQL Error Database init failure: [%d] %s", failIndex, error);
+}
+
+void DB_insertScore(int client, int class) // only insert 1 record at a time perhaps
+{	
+	char mapName[64];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	char steamID[32];
+	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
+
+	float reconTime = g_allTimes[client][CLASS_RECON];
+	float assaultTime = g_allTimes[client][CLASS_ASSAULT];
+	float supportTime = g_allTimes[client][CLASS_SUPPORT];
+	
+	char query[1664];
+	
+	hDB.Format(query, sizeof(query), 
+	"\
+	INSERT INTO nt_bhop_scores(steamID, mapName, reconTime, assaultTime, supportTime) \
+	VALUES ('%s', '%s', %f, %f, %f) \
+	ON CONFLICT(steamID, mapName) \
+	DO UPDATE SET \
+	reconTime = CASE \
+	WHEN excluded.reconTime > 0.0 AND (nt_bhop_scores.reconTime = 0.0 OR excluded.reconTime < nt_bhop_scores.reconTime) \
+	THEN excluded.reconTime \
+	ELSE nt_bhop_scores.reconTime \
+	END,\
+	assaultTime = CASE \
+	WHEN excluded.assaultTime > 0.0 AND (nt_bhop_scores.assaultTime = 0.0 OR excluded.assaultTime < nt_bhop_scores.assaultTime) \
+	THEN excluded.assaultTime \
+	ELSE nt_bhop_scores.assaultTime \
+	END, \
+	supportTime = CASE \
+	WHEN excluded.supportTime > 0.0 AND (nt_bhop_scores.supportTime = 0.0 OR excluded.supportTime < nt_bhop_scores.supportTime) \
+	THEN excluded.supportTime \
+	ELSE nt_bhop_scores.supportTime \
+	END;\
+	",
+	steamID, mapName, reconTime, assaultTime, supportTime);
+	
+	hDB.Query(DB_fast_callback, query, _, DBPrio_Normal);
+}
+
+void DB_fast_callback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (!db || !results || error[0])
+    {
+        LogError("[BHOP] SQL Error: %s", error);
+        return;
+    }
+	else
+	{
+		PrintToServer("[BHOP] Some SQL thing was succesful");
+	}
+}
+
+void DB_retrieveScore(int client)
+{
+	char mapName[64];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	char steamID[32];
+	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
+	
+	char query[512];
+	
+	hDB.Format(query, sizeof(query), 
+	"\
+	SELECT reconTime, assaultTime, supportTime \
+	FROM nt_bhop_scores \
+	WHERE steamID = '%s' \
+	AND mapName = '%s';\
+	",
+	steamID, mapName);
+	
+	int userid = GetClientUserId(client);
+	
+	hDB.Query(DB_results_callback, query, userid, DBPrio_Normal);
+}
+
+void DB_results_callback(Database db, DBResultSet results, const char[] error, int userid)
+{
+	if (!db || !results || error[0])
+	{
+		LogError("[BHOP] SQL Error: %s", error);
+		return;
+	}
+
+	if (SQL_GetRowCount(results) == 0)
+	{
+		return;
+	}
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+	
+	int client = GetClientOfUserId(userid);
+	
+	if(client <= 0 || client > MaxClients)
+	{
+		return;
+	}
+	
+	float reconTime = SQL_FetchFloat(results, 0);
+	float assaultTime = SQL_FetchFloat(results, 1);
+	float supportTime = SQL_FetchFloat(results, 2);
+
+	PrintToConsole(client, "[BHOP] Your Recon top score for %s: %f", g_mapName, reconTime);
+	PrintToConsole(client, "[BHOP] Your Assault top score for %s: %f", g_mapName, assaultTime);
+	PrintToConsole(client, "[BHOP] Your Support top score for %s: %f", g_mapName, supportTime);
+}
+
+void DB_retrieveTopScore()
+{
+	char mapName[64];
+	GetCurrentMap(mapName, sizeof(mapName));
+	
+	char query[1664];
+	
+	hDB.Format(query, sizeof(query), 
+	"\
+	SELECT steamID, MIN(reconTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND reconTime > 0.0 \
+	UNION ALL \
+	SELECT steamID, MIN(assaultTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND assaultTime > 0.0 \
+	UNION ALL \
+	SELECT steamID, MIN(supportTime) \
+	FROM nt_bhop_scores \
+	WHERE mapName = '%s' AND supportTime > 0.0; \
+	",
+	mapName, mapName, mapName);
+	
+	hDB.Query(DB_top_callback, query, _, DBPrio_Normal);
+}
+
+void DB_top_callback(Database db, DBResultSet results, const char[] error, int userid)
+{
+	if (!db || !results || error[0])
+	{
+		LogError("[BHOP] SQL Error: %s", error);
+		return;
+	}
+	
+	int rowCount = SQL_GetRowCount(results);
+	//PrintToServer("row count %d", rowCount);
+	
+	if (rowCount == 0)
+	{
+		return;
+	}
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+
+	char steamID[65];
+	float time;
+	
+	SQL_FetchString(results, 0, steamID, sizeof(steamID));
+	time = SQL_FetchFloat(results, 1);
+	PrintToConsoleAll("Top Recon: %s Time: %f", steamID, time);
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+	
+	SQL_FetchString(results, 0, steamID, sizeof(steamID));
+	time = SQL_FetchFloat(results, 1);
+	PrintToConsoleAll("Top Assault: %s Time: %f", steamID, time);
+	
+	if (!SQL_FetchRow(results))
+	{
+		return;
+	}
+	
+	SQL_FetchString(results, 0, steamID, sizeof(steamID));
+	time = SQL_FetchFloat(results, 1);
+	PrintToConsoleAll("Top Support: %s Time: %f", steamID, time);
 }
