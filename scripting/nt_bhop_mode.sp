@@ -57,7 +57,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.3.6",
+	version = "0.3.7",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -72,9 +72,7 @@ public void OnPluginStart()
 	if(g_lateLoad)
 	{
 		OnMapInit();
-		OnMapStart();
-		OnConfigsExecuted();
-		
+		// doesn't seem like you need to also call mapstart or cfgs, as they are called again on plugin load
 		for(int client = 1; client <= MaxClients; client++)
 		{
 			if(IsClientInGame(client))
@@ -157,6 +155,7 @@ public void OnMapStart()
 	for(int client = 1; client <= MaxClients; client++)
 	{
 		FullResetClient(client);
+		g_inBhopArea[client] = false;
 	}
 }
 
@@ -282,6 +281,7 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 	for(int client = 1; client <= MaxClients; client++)
 	{
 		FullResetClient(client);
+		g_inBhopArea[client] = false;
 	}
 }
 
@@ -356,6 +356,8 @@ void SetupPlayer(int userid)
 	PrintToChat(client, "[BHOP] If you touch the same line twice from outside the bhop area you are reset");
 	
 	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
+	
+	g_inBhopArea[client] = false;
 	
 	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
@@ -444,6 +446,8 @@ void Trigger_OnEndTouchBhopArea(const char[] output, int caller, int activator, 
 
 void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, float delay)
 {
+	PrintToChatAll("doing something");
+	
 	int class = GetPlayerClass(activator);
 	
 	if(class < 1 || class > 3)
@@ -552,14 +556,6 @@ void Trigger_OnStartTouchFinish(const char[] output, int caller, int activator, 
 		FullResetClient(activator);
 	}
 	
-	/*
-	if(g_touchedFinish[activator])
-	{
-		ResetClient(activator, class, true);
-		return;
-	}
-	*/
-	
 	g_touchedFinish[activator] = true;
 	
 	if(!g_touchedStart[activator])
@@ -609,9 +605,6 @@ void CheckTime(int client, int class)
 		PrintToChat(client,"[BHOP] You got your best time for the current session yet on %s", g_className[class]);
 	}
 }
-
-
-//void ResetClient(int client, int class)
 
 void ResetClient(int client, int class, bool same=false)
 {
