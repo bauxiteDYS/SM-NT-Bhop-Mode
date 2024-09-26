@@ -87,6 +87,8 @@ public void OnPluginStart()
 
 public void OnMapInit()
 {
+	static bool hooked;
+	
 	GetCurrentMap(g_mapName, sizeof(g_mapName));
 	
 	if(StrContains(g_mapName, "_bhop", false) != -1)
@@ -96,6 +98,15 @@ public void OnMapInit()
 	else
 	{
 		g_bhopMap = false;
+		
+		if(hooked)
+		{
+			UnhookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
+			UnhookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
+			UnhookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post);
+			RemoveCommandListener(OnTeam, "jointeam");
+			hooked = false;
+		}
 	}
 	
 	if(!g_bhopMap)
@@ -103,12 +114,35 @@ public void OnMapInit()
 		return;
 	}
 	
-	HookEvent("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post);
-	HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
-	HookEvent("game_round_start", Event_RoundStartPost, EventHookMode_Post); //remove on map end?
-	AddCommandListener(OnTeam, "jointeam");
+	if(hooked)
+	{
+		return;
+	}
+	
+	if(!HookEventEx("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post))
+	{
+		SetFailState("[BHOP] Error: Failed to hook");
+	}
+	
+	if(!HookEventEx("player_death", Event_PlayerDeathPost, EventHookMode_Post))
+	{
+		SetFailState("[BHOP] Error: Failed to hook");
+	}
+	
+	if(!HookEventEx("game_round_start", Event_RoundStartPost, EventHookMode_Post))
+	{
+		SetFailState("[BHOP] Error: Failed to hook");
+	}
+	
+	if(!AddCommandListener(OnTeam, "jointeam"))
+	{
+		SetFailState("[BHOP] Error: Failed to hook");
+	}
+	
 	RegConsoleCmd("sm_myscores", Cmd_ClientScores);
 	RegConsoleCmd("sm_topscores", Cmd_TopScores);
+	
+	hooked = true;
 }
 
 public void OnMapStart()
