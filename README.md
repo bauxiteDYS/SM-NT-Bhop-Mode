@@ -4,6 +4,7 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
 **Experimental** Bhop game mode for neotokyo:  
 - Go (bhop!?) from one trigger to the other to get a print of your time, compete with other players to be faster!
 - Use the command `!topscores` to get a print in console of the current class records for the current server, `0.0` if no record is set.
+- Use the command `!myscores` to get your scores in console.
 - Use `kill` or `retry` in console to change class, as the map should be in warmup mode.
 - If you have a bad start, you can touch the trigger again where you started, touching the same trigger twice resets your time and gives you full aux. Times only count from when the plugin prints "start hopping".
 - Health dropping to 50 is a sign that your time is being recorded.
