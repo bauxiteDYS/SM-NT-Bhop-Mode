@@ -16,16 +16,18 @@ static char g_className[][] = {
 Database hDB;
 ConVar g_cvarTeamBalance;
 static char g_mapName[32];
-float g_topScore[3+1]; // retrieve from database
+float g_topScore[3+1]; // retrieve from database maybe or leave as session only
 float g_allTimes[NEO_MAXPLAYERS+1][3+1];
 float g_time[NEO_MAXPLAYERS+1];
 float g_newTime[NEO_MAXPLAYERS+1];
 float g_oldTime[NEO_MAXPLAYERS+1];
+float g_spawnOrigin[NEO_MAXPLAYERS+1][3];
 bool g_touchedOne[NEO_MAXPLAYERS+1];
 bool g_touchedTwo[NEO_MAXPLAYERS+1];
 bool g_touchedStart[NEO_MAXPLAYERS+1];
 bool g_touchedFinish[NEO_MAXPLAYERS+1];
 bool g_inBhopArea[NEO_MAXPLAYERS+1];
+bool g_hopping[NEO_MAXPLAYERS+1];
 bool g_bhopMap;
 bool g_asymMap;
 bool g_lateLoad;
@@ -139,6 +141,7 @@ public void OnMapInit()
 	
 	RegConsoleCmd("sm_myscores", Cmd_ClientScores);
 	RegConsoleCmd("sm_topscores", Cmd_TopScores);
+	RegConsoleCmd("sm_reset", Cmd_Reset);
 	
 	hooked = true;
 }
@@ -196,6 +199,28 @@ public void OnMapEnd()
 			g_allTimes[c][i] = 0.0;
 		}
 	}
+}
+
+public Action Cmd_Reset(int client, int args)
+{
+	if(!g_bhopMap)
+	{
+		return Plugin_Handled;
+	}
+	
+	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
+	{
+		return Plugin_Handled;
+	}
+	
+	static float noSpeed[] = {0.0, 0.0, 0.0};
+	int class = GetPlayerClass(client);
+	
+	TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
+	
+	ResetClient(client, class);
+	
+	return Plugin_Handled;
 }
 
 public Action Cmd_ClientScores(int client, int args)
@@ -354,10 +379,13 @@ void SetupPlayer(int userid)
 	
 	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
 	PrintToChat(client, "[BHOP] If you touch the same line twice from outside the bhop area you are reset");
+	PrintToChat(client, "[BHOP] Commands: !topscores, !myscores, !reset");
 	
 	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
 	
 	g_inBhopArea[client] = false;
+	
+	GetClientAbsOrigin(client, g_spawnOrigin[client]);
 	
 	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
@@ -446,8 +474,6 @@ void Trigger_OnEndTouchBhopArea(const char[] output, int caller, int activator, 
 
 void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, float delay)
 {
-	PrintToChatAll("doing something");
-	
 	int class = GetPlayerClass(activator);
 	
 	if(class < 1 || class > 3)
@@ -572,6 +598,7 @@ void Trigger_OnStartTouchFinish(const char[] output, int caller, int activator, 
 
 void StartHop(int client)
 {
+	g_hopping[client] = true;
 	g_oldTime[client] = GetGameTime();
 	
 	SetEntityHealth(client, 50);
@@ -606,8 +633,12 @@ void CheckTime(int client, int class)
 	}
 }
 
+// need to look at how resets are handled, and maybe make it simpler / better
+
 void ResetClient(int client, int class, bool same=false)
 {
+	g_hopping[client] = false;
+	
 	if(!g_asymMap)
 	{
 		g_touchedOne[client] = false;
@@ -633,6 +664,10 @@ void ResetClient(int client, int class, bool same=false)
 	{
 		PrintToChat(client, "[BHOP] You touched the same line twice, you have been reset!");
 	}
+	else
+	{
+		PrintToChat(client, "[BHOP] You have been reset");
+	}
 }
 
 void FullResetClient(int client)
@@ -640,6 +675,7 @@ void FullResetClient(int client)
 	g_time[client] = 0.0;
 	g_newTime[client] = 0.0;
 	g_oldTime[client] = 0.0;
+	g_hopping[client] = false;
 	
 	if(IsClientInGame(client) && IsPlayerAlive(client))
 	{
