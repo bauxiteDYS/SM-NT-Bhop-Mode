@@ -27,6 +27,7 @@ bool g_touchedTwo[NEO_MAXPLAYERS+1];
 bool g_touchedStart[NEO_MAXPLAYERS+1];
 bool g_touchedFinish[NEO_MAXPLAYERS+1];
 bool g_inBhopArea[NEO_MAXPLAYERS+1];
+bool g_inStartArea[NEO_MAXPLAYERS+1];
 bool g_hopping[NEO_MAXPLAYERS+1];
 bool g_bhopMap;
 bool g_asymMap;
@@ -36,6 +37,7 @@ int g_triggerTwo;
 int g_triggerStart;
 int g_triggerFinish;
 int g_triggerBhopArea;
+int g_triggerStartArea;
 
 int FindEntityByTargetname(const char[] classname, const char[] targetname)
 {
@@ -59,7 +61,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.3.7",
+	version = "0.5.0",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -88,7 +90,6 @@ public void OnPluginStart()
 public void OnMapInit()
 {
 	static bool hooked;
-	
 	GetCurrentMap(g_mapName, sizeof(g_mapName));
 	
 	if(StrContains(g_mapName, "_bhop", false) != -1)
@@ -317,6 +318,7 @@ void HookTriggers()
 	PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
 	
 	g_triggerBhopArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_bhoparea");
+	g_triggerStartArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_startarea");
 	
 	g_triggerOne = FindEntityByTargetname("trigger_multiple", "bhop_trigger_one");
 	g_triggerTwo = FindEntityByTargetname("trigger_multiple", "bhop_trigger_two");
@@ -326,15 +328,15 @@ void HookTriggers()
 	
 	if(g_triggerOne != -1 && g_triggerTwo != -1)
 	{
-		HookSingleEntityOutput(g_triggerOne, "OnStartTouch", Trigger_OnStartTouchOne);
-		HookSingleEntityOutput(g_triggerTwo, "OnStartTouch", Trigger_OnStartTouchTwo);
+		HookSingleEntityOutput(g_triggerOne, "OnEndTouch", Trigger_OnEndTouchOne);
+		HookSingleEntityOutput(g_triggerTwo, "OnEndTouch", Trigger_OnEndTouchTwo);
 		g_asymMap = false;
 		PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
 	}
 	else if(g_triggerStart != -1 && g_triggerFinish != -1)
 	{
-		HookSingleEntityOutput(g_triggerStart, "OnStartTouch", Trigger_OnStartTouchStart);
-		HookSingleEntityOutput(g_triggerFinish, "OnStartTouch", Trigger_OnStartTouchFinish);
+		HookSingleEntityOutput(g_triggerStart, "OnEndTouch", Trigger_OnEndTouchStart);
+		HookSingleEntityOutput(g_triggerFinish, "OnEndTouch", Trigger_OnEndTouchFinish);
 		g_asymMap = true;
 		PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
 	}
@@ -348,6 +350,17 @@ void HookTriggers()
 	{
 		HookSingleEntityOutput(g_triggerBhopArea, "OnStartTouch", Trigger_OnStartTouchBhopArea);
 		HookSingleEntityOutput(g_triggerBhopArea, "OnEndTouch", Trigger_OnEndTouchBhopArea);
+	}
+	else
+	{
+		PrintToChatAll("[BHOP] Error: Plugin has failed");
+		SetFailState("[BHOP] Error: Triggers were not found");
+	}
+	
+	if(g_triggerStartArea != -1)
+	{
+		HookSingleEntityOutput(g_triggerStartArea, "OnStartTouch", Trigger_OnStartTouchStartArea);
+		HookSingleEntityOutput(g_triggerStartArea, "OnEndTouch", Trigger_OnEndTouchStartArea);
 	}
 	else
 	{
@@ -390,7 +403,7 @@ void SetupPlayer(int userid)
 	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public Action StripWeps(Handle timer, int userid) // GIVE kyla to sup
+public Action StripWeps(Handle timer, int userid) // GIVE knives to non-sup
 {
 	int client = GetClientOfUserId(userid);
 	
@@ -472,7 +485,17 @@ void Trigger_OnEndTouchBhopArea(const char[] output, int caller, int activator, 
 	g_inBhopArea[activator] = false;
 }
 
-void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, float delay)
+void Trigger_OnStartTouchStartArea(const char[] output, int caller, int activator, float delay)
+{
+	g_inStartArea[activator] = true;
+}
+
+void Trigger_OnEndTouchStartArea(const char[] output, int caller, int activator, float delay)
+{
+	g_inStartArea[activator] = false;
+}
+
+void Trigger_OnEndTouchOne(const char[] output, int caller, int activator, float delay)
 {
 	int class = GetPlayerClass(activator);
 	
@@ -481,19 +504,8 @@ void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, flo
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
 		FullResetClient(activator);
 	}
-	
-	if(g_touchedOne[activator] && !g_inBhopArea[activator])
-	{
-		ResetClient(activator, class, true);
-		return;
-	}
-	else if (g_touchedOne[activator] && g_inBhopArea[activator])
-	{
-		PrintToChat(activator, "[BHOP] Go towards the other line!");
-		return;
-	}
-	
-	if(!g_touchedTwo[activator] && !g_inBhopArea[activator])
+
+	if(!g_touchedTwo[activator] && g_inBhopArea[activator])
 	{
 		g_touchedOne[activator] = true;
 		StartHop(activator);
@@ -502,10 +514,16 @@ void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, flo
 	else if(g_touchedTwo[activator])
 	{
 		CheckTime(activator, class);
+		return;
+	}
+	else if(!g_touchedTwo[activator] && g_inStartArea[activator] && g_hopping[activator])
+	{
+		ResetClient(activator, class);
+		return;
 	}
 }
 
-void Trigger_OnStartTouchTwo(const char[] output, int caller, int activator, float delay)
+void Trigger_OnEndTouchTwo(const char[] output, int caller, int activator, float delay)
 {
 	int class = GetPlayerClass(activator);
 	
@@ -515,18 +533,7 @@ void Trigger_OnStartTouchTwo(const char[] output, int caller, int activator, flo
 		FullResetClient(activator);
 	}
 	
-	if(g_touchedTwo[activator] && !g_inBhopArea[activator])
-	{
-		ResetClient(activator, class, true);
-		return;
-	}
-	else if (g_touchedTwo[activator] && g_inBhopArea[activator])
-	{
-		PrintToChat(activator, "[BHOP] Go towards the other line!");
-		return;
-	}
-	
-	if(!g_touchedOne[activator] && !g_inBhopArea[activator])
+	if(!g_touchedOne[activator] && g_inBhopArea[activator])
 	{
 		g_touchedTwo[activator] = true;
 		StartHop(activator);
@@ -535,10 +542,16 @@ void Trigger_OnStartTouchTwo(const char[] output, int caller, int activator, flo
 	else if(g_touchedOne[activator])
 	{
 		CheckTime(activator, class);
+		return;
 	}	
+	else if(!g_touchedOne[activator] && g_inStartArea[activator] && g_hopping[activator])
+	{
+		ResetClient(activator, class);
+		return;
+	}
 }
 
-void Trigger_OnStartTouchStart(const char[] output, int caller, int activator, float delay)
+void Trigger_OnEndTouchStart(const char[] output, int caller, int activator, float delay)
 {
 	int class = GetPlayerClass(activator);
 	
@@ -548,7 +561,7 @@ void Trigger_OnStartTouchStart(const char[] output, int caller, int activator, f
 		FullResetClient(activator);
 	}
 	
-	if(!g_touchedStart[activator] && !g_touchedFinish[activator] && !g_inBhopArea[activator])
+	if(!g_touchedStart[activator] && !g_touchedFinish[activator] && g_inBhopArea[activator])
 	{
 		g_touchedStart[activator] = true;
 		StartHop(activator);
@@ -560,19 +573,14 @@ void Trigger_OnStartTouchStart(const char[] output, int caller, int activator, f
 		return;
 	}
 	
-	if(g_touchedStart[activator] && !g_inBhopArea[activator])
+	if (g_touchedStart[activator] && g_inStartArea[activator])
 	{
-		ResetClient(activator, class, true);
-		return;
-	}
-	else if (g_touchedStart[activator] && g_inBhopArea[activator])
-	{
-		PrintToChat(activator, "[BHOP] Go towards the finish line!");
+		ResetClient(activator, class);
 		return;
 	}
 }
 
-void Trigger_OnStartTouchFinish(const char[] output, int caller, int activator, float delay)
+void Trigger_OnEndTouchFinish(const char[] output, int caller, int activator, float delay)
 {
 	int class = GetPlayerClass(activator);
 	
@@ -606,10 +614,12 @@ void StartHop(int client)
 	if(!g_asymMap)
 	{
 		PrintToChat(client, "[BHOP] Start hopping to the other line!");
+		PrintCenterText(client, "Go! Go! Go!");
 	}
 	else
 	{
 		PrintToChat(client, "[BHOP] Start hopping to the finish line!");
+		PrintCenterText(client, "Go! Go! Go!");
 	}
 }
 
