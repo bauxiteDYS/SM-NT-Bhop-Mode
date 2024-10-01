@@ -15,8 +15,9 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
  
 **Instructions for Mappers:**
 - All you need to create a map for this mode at the moment are two `trigger_multiple` entities on a map set to `ctg`, between which the players will race.
-- Call the triggers: `bhop_trigger_one` and `bhop_trigger_two` for symmetrical maps as players can run the course either way and the timing will be the same.
-- Call the triggers: `bhop_trigger_start` and `bhop_trigger_finish` for asymmeterical maps, players will only be able to complete the course from start to finish triggers, perhaps implement teleports so they can reach the start quickly again.
+- Call the triggers: `bhop_trigger_one` and `bhop_trigger_two` for symmetrical course as players can run the course both ways (forwards and backwards) and the timing will be the same.
+- Call the triggers: `bhop_trigger_start` and `bhop_trigger_finish` for asymmeterical courses, players will only be able to complete the course from start to finish triggers, perhaps implement teleports so they can reach the start quickly again.
 - Add a third `trigger_multiple` (one entity but two seperate brushes), called `bhop_trigger_bhoparea` touching the other two triggers on the **inside** of the course (where players race), make sure the trigger is essentially the same shape and height as the starting line triggers, the depth should be 64 units (to be on the safe side). To make this trigger easier, duplicate both the other triggers and move them towards the inside of the course, then increase their depth if neccessary, usually the starting triggers will be 32 units deep.
+- Add one more `trigger_multiple` (one entity but two seperate brushes), called `bhop_trigger_startarea` touching the other two triggers on the **outside** of the course (where players **don't** race), make sure the trigger is essentially the same shape and height as the starting line triggers, the depth should be 64 units (to be on the safe side). To make this trigger easier, duplicate both the other triggers and move them towards the inside of the course, then increase their depth if neccessary, usually the starting triggers will be 32 units deep.
 - Include `_bhop` in the map name.
 
