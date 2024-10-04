@@ -161,6 +161,8 @@ public void OnMapStart()
 		FullResetClient(client);
 		g_inBhopArea[client] = false;
 	}
+	
+	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8);
 }
 
 public void OnConfigsExecuted()
