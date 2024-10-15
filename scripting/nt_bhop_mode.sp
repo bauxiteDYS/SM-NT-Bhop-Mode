@@ -22,18 +22,15 @@ float g_time[NEO_MAXPLAYERS+1];
 float g_newTime[NEO_MAXPLAYERS+1];
 float g_oldTime[NEO_MAXPLAYERS+1];
 float g_spawnOrigin[NEO_MAXPLAYERS+1][3];
-bool g_touchedOne[NEO_MAXPLAYERS+1];
-bool g_touchedTwo[NEO_MAXPLAYERS+1];
 bool g_touchedStart[NEO_MAXPLAYERS+1];
 bool g_touchedFinish[NEO_MAXPLAYERS+1];
 bool g_inBhopArea[NEO_MAXPLAYERS+1];
 bool g_inStartArea[NEO_MAXPLAYERS+1];
 bool g_hopping[NEO_MAXPLAYERS+1];
 bool g_bhopMap;
-bool g_asymMap;
+bool g_circularCourse;
 bool g_lateLoad;
 int g_triggerOne;
-int g_triggerTwo;
 int g_triggerStart;
 int g_triggerFinish;
 int g_triggerBhopArea;
@@ -61,7 +58,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.5.0",
+	version = "0.5.3",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -202,6 +199,8 @@ public void OnMapEnd()
 			g_allTimes[c][i] = 0.0;
 		}
 	}
+	
+	StoreToAddress(view_as<Address>(0x2245552c), '-', NumberType_Int8);
 }
 
 public Action Cmd_Reset(int client, int args)
@@ -216,14 +215,20 @@ public Action Cmd_Reset(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	static float noSpeed[] = {0.0, 0.0, 0.0};
+	TeleportMe(client);
+	
 	int class = GetPlayerClass(client);
-	
-	TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
-	
 	ResetClient(client, class);
 	
 	return Plugin_Handled;
+}
+
+//spawn at player_info or something if lateload or failed to get spawn somehow
+// delay teleport by 0.1s?
+void TeleportMe(int client) 
+{
+	static float noSpeed[] = {0.0, 0.0, 0.0};
+	TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
 }
 
 public Action Cmd_ClientScores(int client, int args)
@@ -315,32 +320,26 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 
 void HookTriggers()
 {
-	PrintToServer("Hooking triggers");
-	PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
-	PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
-	
+
 	g_triggerBhopArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_bhoparea");
 	g_triggerStartArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_startarea");
 	
 	g_triggerOne = FindEntityByTargetname("trigger_multiple", "bhop_trigger_one");
-	g_triggerTwo = FindEntityByTargetname("trigger_multiple", "bhop_trigger_two");
 	
 	g_triggerStart = FindEntityByTargetname("trigger_multiple", "bhop_trigger_start");
 	g_triggerFinish = FindEntityByTargetname("trigger_multiple", "bhop_trigger_finish");
 	
-	if(g_triggerOne != -1 && g_triggerTwo != -1)
+	if(g_triggerOne != -1)
 	{
+		HookSingleEntityOutput(g_triggerOne, "OnStartTouch", Trigger_OnStartTouchOne);
 		HookSingleEntityOutput(g_triggerOne, "OnEndTouch", Trigger_OnEndTouchOne);
-		HookSingleEntityOutput(g_triggerTwo, "OnEndTouch", Trigger_OnEndTouchTwo);
-		g_asymMap = false;
-		PrintToServer("%d %d", g_triggerOne, g_triggerTwo);
+		g_circularCourse = true;
 	}
 	else if(g_triggerStart != -1 && g_triggerFinish != -1)
 	{
 		HookSingleEntityOutput(g_triggerStart, "OnEndTouch", Trigger_OnEndTouchStart);
 		HookSingleEntityOutput(g_triggerFinish, "OnEndTouch", Trigger_OnEndTouchFinish);
-		g_asymMap = true;
-		PrintToServer("%d %d", g_triggerStart, g_triggerFinish);
+		g_circularCourse = false;
 	}
 	else
 	{
@@ -497,6 +496,29 @@ void Trigger_OnEndTouchStartArea(const char[] output, int caller, int activator,
 	g_inStartArea[activator] = false;
 }
 
+void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, float delay)
+{
+	int class = GetPlayerClass(activator);
+	
+	if(class < 1 || class > 3)
+	{
+		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
+		FullResetClient(activator);
+	}
+	
+	if(g_hopping[activator] && g_inBhopArea[activator])
+	{
+		ResetClient(activator, class);
+		return;
+	}
+	
+	if(g_hopping[activator] && g_inStartArea[activator])
+	{
+		CheckTime(activator, class);
+		return;
+	}
+}
+
 void Trigger_OnEndTouchOne(const char[] output, int caller, int activator, float delay)
 {
 	int class = GetPlayerClass(activator);
@@ -507,48 +529,9 @@ void Trigger_OnEndTouchOne(const char[] output, int caller, int activator, float
 		FullResetClient(activator);
 	}
 
-	if(!g_touchedTwo[activator] && g_inBhopArea[activator])
+	if(!g_hopping[activator] && g_inBhopArea[activator])
 	{
-		g_touchedOne[activator] = true;
 		StartHop(activator);
-		return;
-	}
-	else if(g_touchedTwo[activator])
-	{
-		CheckTime(activator, class);
-		return;
-	}
-	else if(!g_touchedTwo[activator] && g_inStartArea[activator] && g_hopping[activator])
-	{
-		ResetClient(activator, class);
-		return;
-	}
-}
-
-void Trigger_OnEndTouchTwo(const char[] output, int caller, int activator, float delay)
-{
-	int class = GetPlayerClass(activator);
-	
-	if(class < 1 || class > 3)
-	{
-		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator);
-	}
-	
-	if(!g_touchedOne[activator] && g_inBhopArea[activator])
-	{
-		g_touchedTwo[activator] = true;
-		StartHop(activator);
-		return;
-	}
-	else if(g_touchedOne[activator])
-	{
-		CheckTime(activator, class);
-		return;
-	}	
-	else if(!g_touchedOne[activator] && g_inStartArea[activator] && g_hopping[activator])
-	{
-		ResetClient(activator, class);
 		return;
 	}
 }
@@ -613,9 +596,9 @@ void StartHop(int client)
 	
 	SetEntityHealth(client, 50);
 	
-	if(!g_asymMap)
+	if(g_circularCourse)
 	{
-		PrintToChat(client, "[BHOP] Start hopping to the other line!");
+		PrintToChat(client, "[BHOP] Start hopping!");
 		PrintCenterText(client, "Go! Go! Go!");
 	}
 	else
@@ -646,17 +629,13 @@ void CheckTime(int client, int class)
 }
 
 // need to look at how resets are handled, and maybe make it simpler / better
+// don't teleport for circular map
 
 void ResetClient(int client, int class, bool same=false)
 {
 	g_hopping[client] = false;
 	
-	if(!g_asymMap)
-	{
-		g_touchedOne[client] = false;
-		g_touchedTwo[client] = false;
-	}
-	else
+	if(!g_circularCourse)
 	{
 		g_touchedStart[client] = false;
 		g_touchedFinish[client] = false;
@@ -665,6 +644,11 @@ void ResetClient(int client, int class, bool same=false)
 	if(IsClientInGame(client) && IsPlayerAlive(client))
 	{
 		SetEntityHealth(client, 100);
+		
+		if(!g_circularCourse)
+		{
+			TeleportMe(client);
+		}
 	}
 	
 	if(IsClientInGame(client) && class != CLASS_SUPPORT)
@@ -692,14 +676,14 @@ void FullResetClient(int client)
 	if(IsClientInGame(client) && IsPlayerAlive(client))
 	{
 		SetEntityHealth(client, 100);
+		
+		if(!g_circularCourse)
+		{
+			TeleportMe(client);
+		}
 	}
 	
-	if(!g_asymMap)
-	{
-		g_touchedOne[client] = false;
-		g_touchedTwo[client] = false;
-	}
-	else
+	if(!g_circularCourse)
 	{
 		g_touchedStart[client] = false;
 		g_touchedFinish[client] = false;
