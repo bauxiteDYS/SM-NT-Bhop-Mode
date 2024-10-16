@@ -24,7 +24,7 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
       
 **For circular course (Start and finish line are the same):**    
 - Create one `trigger_multiple` entity on a map set to `ctg`, should be at least 32 units depth.
-- Call the trigger: `bhop_trigger_one, players will race around in one direction in a circular manner.
+- Call the trigger: `bhop_trigger_one`, players will race around in one direction in a circular manner.
 - Add a second `trigger_multiple`, called `bhop_trigger_bhoparea` touching the start trigger, make sure the trigger is essentially the same shape and height as the starting line triggers, the depth should be 64 units (to be on the safe side). To make this trigger easier, duplicate the start trigger and then increase their depth if neccessary, usually the starting triggers will be 32 units deep.
 - Add one more `trigger_multiple` called `bhop_trigger_startarea` touching the start trigger, make sure the trigger is essentially the same shape and height as the starting trigger, the depth should be 64 units (to be on the safe side). Players will race in the direction of the startarea to the bhoparea.
 - Include `_bhop` in the map name.
