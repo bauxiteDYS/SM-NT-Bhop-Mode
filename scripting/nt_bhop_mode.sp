@@ -22,6 +22,8 @@ float g_time[NEO_MAXPLAYERS+1];
 float g_newTime[NEO_MAXPLAYERS+1];
 float g_oldTime[NEO_MAXPLAYERS+1];
 float g_spawnOrigin[NEO_MAXPLAYERS+1][3];
+float g_defenderOrigin[3];
+bool g_portingClient[NEO_MAXPLAYERS+1];
 bool g_touchedStart[NEO_MAXPLAYERS+1];
 bool g_touchedFinish[NEO_MAXPLAYERS+1];
 bool g_inBhopArea[NEO_MAXPLAYERS+1];
@@ -36,29 +38,64 @@ int g_triggerFinish;
 int g_triggerBhopArea;
 int g_triggerStartArea;
 
-int FindEntityByTargetname(const char[] classname, const char[] targetname)
+// need to look at how resets are handled, and maybe make it simpler / better
+void ResetClient(int client, int class, bool teleport)
 {
-	int ent = -1;
-	char buffer[64];
+	g_hopping[client] = false;
 	
-	while ((ent = FindEntityByClassname(ent, classname)) != -1)
+	if(!g_circularCourse)
 	{
-		GetEntPropString(ent, Prop_Data, "m_iName", buffer, sizeof(buffer));
-
-		if (StrEqual(buffer, targetname))
+		g_touchedStart[client] = false;
+		g_touchedFinish[client] = false;
+	}
+	
+	if(IsClientInGame(client) && IsPlayerAlive(client))
+	{
+		SetEntityHealth(client, 100);
+		
+		if(!g_circularCourse && teleport)
 		{
-			return ent;
+			TeleportMe(client);
 		}
 	}
+	
+	if(IsClientInGame(client) && class != CLASS_SUPPORT)
+	{
+		SetPlayerAUX(client, 100.0);
+	}
+	
+	PrintToChat(client, "[BHOP] You have been reset");
+}
 
-	return -1;
+void FullResetClient(int client, bool teleport = false)
+{
+	g_time[client] = 0.0;
+	g_newTime[client] = 0.0;
+	g_oldTime[client] = 0.0;
+	g_hopping[client] = false;
+	
+	if(IsClientInGame(client) && IsPlayerAlive(client))
+	{
+		SetEntityHealth(client, 100);
+		
+		if(!g_circularCourse && teleport)
+		{
+			TeleportMe(client);
+		}
+	}
+	
+	if(!g_circularCourse)
+	{
+		g_touchedStart[client] = false;
+		g_touchedFinish[client] = false;
+	}
 }
 
 public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.5.3",
+	version = "0.5.5",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -72,8 +109,8 @@ public void OnPluginStart()
 {
 	if(g_lateLoad)
 	{
-		OnMapInit();
-		// doesn't seem like you need to also call mapstart or cfgs, as they are called again on plugin load
+		OnMapInit(); // doesn't seem like you need to also call mapstart or cfgs, as they are called again on plugin load
+		
 		for(int client = 1; client <= MaxClients; client++)
 		{
 			if(IsClientInGame(client))
@@ -157,9 +194,22 @@ public void OnMapStart()
 	{
 		FullResetClient(client);
 		g_inBhopArea[client] = false;
+		g_portingClient[client] = false;
 	}
 	
 	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8);
+	
+	char mapName[32];
+	GetCurrentMap(mapName, sizeof(mapName));
+		
+	char timestamp[16];
+	FormatTime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M");
+		
+	char demoName[PLATFORM_MAX_PATH];
+	Format(demoName, sizeof(demoName), "%s_%s", mapName, timestamp);
+		
+	ServerCommand("tv_stoprecord");
+	ServerCommand("tv_record \"%s\"", demoName);
 }
 
 public void OnConfigsExecuted()
@@ -218,17 +268,41 @@ public Action Cmd_Reset(int client, int args)
 	TeleportMe(client);
 	
 	int class = GetPlayerClass(client);
-	ResetClient(client, class);
+	ResetClient(client, class, true);
 	
 	return Plugin_Handled;
 }
 
-//spawn at player_info or something if lateload or failed to get spawn somehow
-// delay teleport by 0.1s?
 void TeleportMe(int client) 
 {
+	int userid = GetClientUserId(client);
+	
+	if(!g_portingClient[client])
+	{
+		g_portingClient[client] = true;
+		PrintCenterText(client, "Teleporting to spawn in 3");
+		CreateTimer(3.0, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+public Action TeleportMeTimer(Handle timer, int userid)
+{
 	static float noSpeed[] = {0.0, 0.0, 0.0};
-	TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
+	int client = GetClientOfUserId(userid);
+	
+	if(client > 0 && IsClientInGame(client) && IsPlayerAlive(client) && !g_hopping[client])
+	{
+		if(g_spawnOrigin[client][0] == 0.0 && g_spawnOrigin[client][1] == 0.0 && g_spawnOrigin[client][2] == 0.0)
+		{
+			PrintToServer("empty vector");
+			AddVectors(g_spawnOrigin[client], g_defenderOrigin, g_spawnOrigin[client]);
+		}
+		
+		TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
+		g_portingClient[client] = false;
+	}
+	
+	return Plugin_Stop;
 }
 
 public Action Cmd_ClientScores(int client, int args)
@@ -278,6 +352,7 @@ public void OnClientDisconnect_Post(int client)
 	FullResetClient(client);
 	
 	g_inBhopArea[client] = false;
+	g_portingClient[client] = false;
 	
 	for(int c = 1; c <= 3; c++)
 	{
@@ -320,7 +395,6 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 
 void HookTriggers()
 {
-
 	g_triggerBhopArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_bhoparea");
 	g_triggerStartArea = FindEntityByTargetname("trigger_multiple", "bhop_trigger_startarea");
 	
@@ -328,6 +402,17 @@ void HookTriggers()
 	
 	g_triggerStart = FindEntityByTargetname("trigger_multiple", "bhop_trigger_start");
 	g_triggerFinish = FindEntityByTargetname("trigger_multiple", "bhop_trigger_finish");
+	
+	int defenderSpawn = FindEntityByClassname(32, "info_player_defender");
+	
+	if(defenderSpawn != -1)
+	{
+		GetEntPropVector(defenderSpawn, Prop_Data, "m_vecAbsOrigin", g_defenderOrigin);
+	}
+	else
+	{
+		SetFailState("[BHOP] Error: Defender spawn not found!!!");
+	}
 	
 	if(g_triggerOne != -1)
 	{
@@ -392,7 +477,7 @@ void SetupPlayer(int userid)
 	}
 	
 	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
-	PrintToChat(client, "[BHOP] If you touch the same line twice from outside the bhop area you are reset");
+	PrintToChat(client, "[BHOP] If you try to go the wrong direction, you may be reset");
 	PrintToChat(client, "[BHOP] Commands: !topscores, !myscores, !reset");
 	
 	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
@@ -464,6 +549,7 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
 	
 	FullResetClient(client);
 	g_inBhopArea[client] = false;
+	g_portingClient[client] = false;
 }
 
 public Action OnWeaponDrop(int client, int weapon)
@@ -508,7 +594,7 @@ void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, flo
 	
 	if(g_hopping[activator] && g_inBhopArea[activator])
 	{
-		ResetClient(activator, class);
+		ResetClient(activator, class, false);
 		return;
 	}
 	
@@ -543,7 +629,7 @@ void Trigger_OnEndTouchStart(const char[] output, int caller, int activator, flo
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator);
+		FullResetClient(activator, true);
 	}
 	
 	if(!g_touchedStart[activator] && !g_touchedFinish[activator] && g_inBhopArea[activator])
@@ -560,7 +646,7 @@ void Trigger_OnEndTouchStart(const char[] output, int caller, int activator, flo
 	
 	if (g_touchedStart[activator] && g_inStartArea[activator])
 	{
-		ResetClient(activator, class);
+		ResetClient(activator, class, false);
 		return;
 	}
 }
@@ -572,14 +658,15 @@ void Trigger_OnEndTouchFinish(const char[] output, int caller, int activator, fl
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator);
+		FullResetClient(activator, true);
+		return;
 	}
 	
 	g_touchedFinish[activator] = true;
 	
 	if(!g_touchedStart[activator])
 	{
-		ResetClient(activator, class);
+		ResetClient(activator, class, true);
 		PrintToChat(activator, "[BHOP] Start your bhop from the start line!");
 		return;
 	}
@@ -596,16 +683,9 @@ void StartHop(int client)
 	
 	SetEntityHealth(client, 50);
 	
-	if(g_circularCourse)
-	{
-		PrintToChat(client, "[BHOP] Start hopping!");
-		PrintCenterText(client, "Go! Go! Go!");
-	}
-	else
-	{
-		PrintToChat(client, "[BHOP] Start hopping to the finish line!");
-		PrintCenterText(client, "Go! Go! Go!");
-	}
+	PrintToChat(client, "[BHOP] Start hopping!");
+	PrintCenterText(client, "Go! Go! Go!");
+
 }
 
 void CheckTime(int client, int class)
@@ -613,7 +693,7 @@ void CheckTime(int client, int class)
 	g_newTime[client] = GetGameTime();
 	g_time[client] = g_newTime[client] - g_oldTime[client];
 	PrintToChat(client, "[BHOP] Your time: %f", g_time[client]);
-	ResetClient(client, class);
+	ResetClient(client, class, true);
 	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) //use floatcompare?
 	{
 		g_topScore[class] = g_time[client];
@@ -625,68 +705,6 @@ void CheckTime(int client, int class)
 		g_allTimes[client][class] = g_time[client];
 		DB_insertScore(client, class);
 		PrintToChat(client,"[BHOP] You got your best time for the current session yet on %s", g_className[class]);
-	}
-}
-
-// need to look at how resets are handled, and maybe make it simpler / better
-// don't teleport for circular map
-
-void ResetClient(int client, int class, bool same=false)
-{
-	g_hopping[client] = false;
-	
-	if(!g_circularCourse)
-	{
-		g_touchedStart[client] = false;
-		g_touchedFinish[client] = false;
-	}
-	
-	if(IsClientInGame(client) && IsPlayerAlive(client))
-	{
-		SetEntityHealth(client, 100);
-		
-		if(!g_circularCourse)
-		{
-			TeleportMe(client);
-		}
-	}
-	
-	if(IsClientInGame(client) && class != CLASS_SUPPORT)
-	{
-		SetPlayerAUX(client, 100.0);
-	}
-	
-	if(same)
-	{
-		PrintToChat(client, "[BHOP] You touched the same line twice, you have been reset!");
-	}
-	else
-	{
-		PrintToChat(client, "[BHOP] You have been reset");
-	}
-}
-
-void FullResetClient(int client)
-{
-	g_time[client] = 0.0;
-	g_newTime[client] = 0.0;
-	g_oldTime[client] = 0.0;
-	g_hopping[client] = false;
-	
-	if(IsClientInGame(client) && IsPlayerAlive(client))
-	{
-		SetEntityHealth(client, 100);
-		
-		if(!g_circularCourse)
-		{
-			TeleportMe(client);
-		}
-	}
-	
-	if(!g_circularCourse)
-	{
-		g_touchedStart[client] = false;
-		g_touchedFinish[client] = false;
 	}
 }
 
@@ -918,4 +936,22 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
 	PrintToConsoleAll("Top Support: %s Time: %f", steamID, time);
+}
+
+int FindEntityByTargetname(const char[] classname, const char[] targetname)
+{
+	int ent = -1;
+	char buffer[64];
+	
+	while ((ent = FindEntityByClassname(ent, classname)) != -1)
+	{
+		GetEntPropString(ent, Prop_Data, "m_iName", buffer, sizeof(buffer));
+
+		if (StrEqual(buffer, targetname))
+		{
+			return ent;
+		}
+	}
+
+	return -1;
 }
