@@ -14,6 +14,7 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
 - Might be incompatible with some plugins, unknown which at the moment, but unlikely.
  
 **Instructions for Mappers:**  
+- Add `info_player_defender` entities where you want the players to spawn, they can only play on NSF so maybe 32 spawns will be needed, just in case the server is completely full (not recommended)
 
 **For normal course (Players bhop from start to finish, in one direction):**  
 - Create two `trigger_multiple` entities on a map set to `ctg`, between which the players will race, each trigger should be at least 32 units depth.
