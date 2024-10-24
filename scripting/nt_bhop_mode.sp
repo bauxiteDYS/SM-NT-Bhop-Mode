@@ -38,43 +38,24 @@ int g_triggerFinish;
 int g_triggerBhopArea;
 int g_triggerStartArea;
 
-// need to look at how resets are handled, and maybe make it simpler / better
-void ResetClient(int client, int class, bool teleport)
+void ResetClient(int client, int class = CLASS_NONE, bool teleport = false)
 {
 	g_hopping[client] = false;
-	
-	if(!g_circularCourse)
-	{
-		g_touchedStart[client] = false;
-		g_touchedFinish[client] = false;
-	}
-	
-	if(IsClientInGame(client) && IsPlayerAlive(client))
-	{
-		SetEntityHealth(client, 100);
-		
-		if(!g_circularCourse && teleport)
-		{
-			TeleportMe(client);
-		}
-	}
-	
-	if(IsClientInGame(client) && class != CLASS_SUPPORT)
-	{
-		SetPlayerAUX(client, 100.0);
-	}
-	
-	PrintToChat(client, "[BHOP] You have been reset");
-}
-
-void FullResetClient(int client, bool teleport = false)
-{
-	g_time[client] = 0.0;
 	g_newTime[client] = 0.0;
 	g_oldTime[client] = 0.0;
-	g_hopping[client] = false;
 	
-	if(IsClientInGame(client) && IsPlayerAlive(client))
+	if(!g_circularCourse)
+	{
+		g_touchedStart[client] = false;
+		g_touchedFinish[client] = false;
+	}
+	
+	if(!IsClientInGame(client))
+	{
+		return;
+	}
+	
+	if(IsPlayerAlive(client))
 	{
 		SetEntityHealth(client, 100);
 		
@@ -84,10 +65,14 @@ void FullResetClient(int client, bool teleport = false)
 		}
 	}
 	
-	if(!g_circularCourse)
+	if(class > CLASS_NONE)
 	{
-		g_touchedStart[client] = false;
-		g_touchedFinish[client] = false;
+		if(class != CLASS_SUPPORT)
+		{
+			SetPlayerAUX(client, 100.0);
+		}
+	
+		PrintToChat(client, "[BHOP] You have been reset");
 	}
 }
 
@@ -95,7 +80,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.5.5",
+	version = "0.5.6",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -192,7 +177,7 @@ public void OnMapStart()
 	
 	for(int client = 1; client <= MaxClients; client++)
 	{
-		FullResetClient(client);
+		ResetClient(client);
 		g_inBhopArea[client] = false;
 		g_portingClient[client] = false;
 	}
@@ -265,7 +250,10 @@ public Action Cmd_Reset(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	TeleportMe(client);
+	if(!g_hopping[client])
+	{
+		return Plugin_Handled;
+	}
 	
 	int class = GetPlayerClass(client);
 	ResetClient(client, class, true);
@@ -280,7 +268,7 @@ void TeleportMe(int client)
 	if(!g_portingClient[client])
 	{
 		g_portingClient[client] = true;
-		PrintCenterText(client, "Teleporting to spawn in 3");
+		PrintCenterText(client, "Teleporting to spawn");
 		CreateTimer(3.0, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
@@ -294,14 +282,13 @@ public Action TeleportMeTimer(Handle timer, int userid)
 	{
 		if(g_spawnOrigin[client][0] == 0.0 && g_spawnOrigin[client][1] == 0.0 && g_spawnOrigin[client][2] == 0.0)
 		{
-			PrintToServer("empty vector");
 			AddVectors(g_spawnOrigin[client], g_defenderOrigin, g_spawnOrigin[client]);
 		}
 		
 		TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
-		g_portingClient[client] = false;
 	}
 	
+	g_portingClient[client] = false;
 	return Plugin_Stop;
 }
 
@@ -349,7 +336,7 @@ public void OnClientDisconnect_Post(int client)
 		return;
 	}
 	
-	FullResetClient(client);
+	ResetClient(client);
 	
 	g_inBhopArea[client] = false;
 	g_portingClient[client] = false;
@@ -388,7 +375,7 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 	
 	for(int client = 1; client <= MaxClients; client++)
 	{
-		FullResetClient(client);
+		ResetClient(client);
 		g_inBhopArea[client] = false;
 	}
 }
@@ -547,7 +534,7 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
 		return;
 	}
 	
-	FullResetClient(client);
+	ResetClient(client);
 	g_inBhopArea[client] = false;
 	g_portingClient[client] = false;
 }
@@ -589,7 +576,7 @@ void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, flo
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator);
+		ResetClient(activator);
 	}
 	
 	if(g_hopping[activator] && g_inBhopArea[activator])
@@ -612,7 +599,7 @@ void Trigger_OnEndTouchOne(const char[] output, int caller, int activator, float
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator);
+		ResetClient(activator);
 	}
 
 	if(!g_hopping[activator] && g_inBhopArea[activator])
@@ -629,7 +616,7 @@ void Trigger_OnEndTouchStart(const char[] output, int caller, int activator, flo
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator, true);
+		ResetClient(activator, _, true);
 	}
 	
 	if(!g_touchedStart[activator] && !g_touchedFinish[activator] && g_inBhopArea[activator])
@@ -658,7 +645,7 @@ void Trigger_OnEndTouchFinish(const char[] output, int caller, int activator, fl
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		FullResetClient(activator, true);
+		ResetClient(activator, _, true);
 		return;
 	}
 	
