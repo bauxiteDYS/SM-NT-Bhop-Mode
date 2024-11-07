@@ -5,7 +5,7 @@
 
 #pragma semicolon 1
 #pragma newdecls required
-
+#define DEBUG false
 static char g_className[][] = {
 	"Unknown",
 	"Recon",
@@ -37,9 +37,9 @@ int g_triggerStart;
 int g_triggerFinish;
 int g_triggerBhopArea;
 int g_triggerStartArea;
-
+// reset porting and bhoparea (player pos) during certain situations where they can't possible be hopping?
 void ResetClient(int client, int class = CLASS_NONE, bool teleport = false)
-{
+{	//reset should probably slow the player down as well
 	g_hopping[client] = false;
 	g_newTime[client] = 0.0;
 	g_oldTime[client] = 0.0;
@@ -80,7 +80,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.5.6",
+	version = "0.5.7",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -139,22 +139,10 @@ public void OnMapInit()
 		return;
 	}
 	
-	if(!HookEventEx("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post))
-	{
-		SetFailState("[BHOP] Error: Failed to hook");
-	}
-	
-	if(!HookEventEx("player_death", Event_PlayerDeathPost, EventHookMode_Post))
-	{
-		SetFailState("[BHOP] Error: Failed to hook");
-	}
-	
-	if(!HookEventEx("game_round_start", Event_RoundStartPost, EventHookMode_Post))
-	{
-		SetFailState("[BHOP] Error: Failed to hook");
-	}
-	
-	if(!AddCommandListener(OnTeam, "jointeam"))
+	if(!HookEventEx("player_spawn", Event_PlayerSpawnPost, EventHookMode_Post)
+	|| !HookEventEx("player_death", Event_PlayerDeathPost, EventHookMode_Post)
+	|| !HookEventEx("game_round_start", Event_RoundStartPost, EventHookMode_Post)
+	|| !AddCommandListener(OnTeam, "jointeam"))
 	{
 		SetFailState("[BHOP] Error: Failed to hook");
 	}
@@ -184,6 +172,8 @@ public void OnMapStart()
 	
 	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8);
 	
+	// Stop demos when no players etc
+	
 	char mapName[32];
 	GetCurrentMap(mapName, sizeof(mapName));
 		
@@ -203,6 +193,8 @@ public void OnConfigsExecuted()
 	{
 		return;
 	}
+	
+	// hook change in case it gets toggled on somehow
 	
 	g_cvarTeamBalance = FindConVar("neottb_enable");
 	if(g_cvarTeamBalance != null)
@@ -245,7 +237,7 @@ public Action Cmd_Reset(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
+	if(client <= 0 || client > MaxClients || args > 0 || !IsClientInGame(client))
 	{
 		return Plugin_Handled;
 	}
@@ -269,7 +261,7 @@ void TeleportMe(int client)
 	{
 		g_portingClient[client] = true;
 		PrintCenterText(client, "Teleporting to spawn");
-		CreateTimer(3.0, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
+		CreateTimer(0.5, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
 
@@ -305,6 +297,7 @@ public Action Cmd_ClientScores(int client, int args)
 	}
 
 	RequestFrame(DB_retrieveScore, client);
+	PrintToChat(client, "[BHOP] Check console for your scores");
 	return Plugin_Handled;
 }
 
@@ -316,6 +309,7 @@ public Action Cmd_TopScores(int client, int args)
 	}
 	
 	RequestFrame(DB_retrieveTopScore);
+	PrintToChat(client, "[BHOP] Check console for top scores");
 	return Plugin_Handled;
 }
 
@@ -349,7 +343,7 @@ public void OnClientDisconnect_Post(int client)
 
 public Action OnTeam(int client, const char[] command, int argc)
 {
-	if(argc != 1 || !IsClientInGame(client) || !g_bhopMap)
+	if(!g_bhopMap || argc != 1 || !IsClientInGame(client))
 	{
 		return Plugin_Continue;
 	}
@@ -390,7 +384,7 @@ void HookTriggers()
 	g_triggerStart = FindEntityByTargetname("trigger_multiple", "bhop_trigger_start");
 	g_triggerFinish = FindEntityByTargetname("trigger_multiple", "bhop_trigger_finish");
 	
-	int defenderSpawn = FindEntityByClassname(32, "info_player_defender");
+	int defenderSpawn = FindEntityByClassname(-1, "info_player_defender");
 	
 	if(defenderSpawn != -1)
 	{
@@ -476,7 +470,7 @@ void SetupPlayer(int userid)
 	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public Action StripWeps(Handle timer, int userid) // GIVE knives to non-sup
+public Action StripWeps(Handle timer, int userid) // GIVE knives to non-sup?
 {
 	int client = GetClientOfUserId(userid);
 	
@@ -746,7 +740,12 @@ void DB_insertScore(int client, int class) // only insert 1 record at a time per
 	GetCurrentMap(mapName, sizeof(mapName));
 	
 	char steamID[32];
-	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
+	if(!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID)))
+	{
+		PrintToChat(client, "[BHOP] Error getting your SteamID, your tim was not saved!");
+		PrintToServer("[BHOP] Error getting SteamID during score insert");
+		return;
+	}
 
 	float reconTime = g_allTimes[client][CLASS_RECON];
 	float assaultTime = g_allTimes[client][CLASS_ASSAULT];
@@ -800,7 +799,12 @@ void DB_retrieveScore(int client)
 	GetCurrentMap(mapName, sizeof(mapName));
 	
 	char steamID[32];
-	GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID));
+	if(!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID)))
+	{
+		PrintToChat(client, "[BHOP] Error getting your SteamID, your tim was not saved!");
+		PrintToServer("[BHOP] Error getting SteamID during score retrieval");
+		return;
+	}
 	
 	char query[512];
 	
@@ -826,12 +830,7 @@ void DB_results_callback(Database db, DBResultSet results, const char[] error, i
 		return;
 	}
 
-	if (SQL_GetRowCount(results) == 0)
-	{
-		return;
-	}
-	
-	if (!SQL_FetchRow(results))
+	if (SQL_GetRowCount(results) == 0 || !SQL_FetchRow(results))
 	{
 		return;
 	}
@@ -886,19 +885,13 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 		return;
 	}
 	
-	int rowCount = SQL_GetRowCount(results);
-	//PrintToServer("row count %d", rowCount);
+	int rowCount = SQL_GetRowCount(results); //PrintToServer("row count %d", rowCount);
 	
-	if (rowCount == 0)
+	if(rowCount == 0 || !SQL_FetchRow(results))
 	{
 		return;
 	}
 	
-	if (!SQL_FetchRow(results))
-	{
-		return;
-	}
-
 	char steamID[65];
 	float time;
 	
