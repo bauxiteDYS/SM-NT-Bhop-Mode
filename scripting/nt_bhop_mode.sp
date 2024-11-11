@@ -45,7 +45,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.5.9",
+	version = "0.6.0",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -69,6 +69,40 @@ public void OnPluginStart()
 			}
 		}
 	}
+}
+
+public void OnClientPutInServer(int client)
+{
+	if(!g_bhopMap)
+	{
+		return;
+	}
+	
+	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
+	
+	ResetClient(client, _, true, true);
+	
+	for(int c = 1; c <= 3; c++)
+	{
+		g_allTimes[client][c] = 0.0;
+	}
+	
+	//RecordClientDemo(client);
+	
+	if(!g_stvRecording)
+	{
+		ToggleSTV();
+	}
+}
+
+public void OnClientDisconnect_Post(int client)
+{
+	if(GetClientCount() <= 1 && g_stvRecording)
+	{
+		ToggleSTV();
+	}
+	
+	//g_clientRecording[client] = false;
 }
 
 public void OnMapInit()
@@ -128,7 +162,7 @@ public void OnMapStart()
 	
 	HookTriggers();
 	
-	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8);
+	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8); // Thanks rain!
 }
 
 public void OnMapEnd()
@@ -179,7 +213,7 @@ void ToggleSTV()
 		g_stvRecording = true;
 	}
 }
-
+/*
 void RecordClientDemo(int client)
 {
 	char timestamp[16];
@@ -190,9 +224,9 @@ void RecordClientDemo(int client)
 	
 	ClientCommand(client, "stop");
 	ClientCommand(client, "record %s", demoName); //is this right
-	//g_clientRecording[client] = true;
+	g_clientRecording[client] = true;
 }
-
+*/
 public void OnConfigsExecuted()
 {
 	static bool changeHook;
@@ -334,13 +368,9 @@ public Action Cmd_Reset(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(!g_hopping[client])
-	{
-		return Plugin_Handled;
-	}
-	
 	int class = GetPlayerClass(client);
 	ResetClient(client, class, true);
+	TeleportMe(client);
 	return Plugin_Handled;
 }
 
@@ -371,40 +401,6 @@ public Action Cmd_TopScores(int client, int args)
 	RequestFrame(DB_retrieveTopScore);
 	PrintToChat(client, "[BHOP] Check console for top scores");
 	return Plugin_Handled;
-}
-
-public void OnClientPutInServer(int client)
-{
-	if(!g_bhopMap)
-	{
-		return;
-	}
-	
-	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
-	
-	ResetClient(client, _, true, true);
-	
-	for(int c = 1; c <= 3; c++)
-	{
-		g_allTimes[client][c] = 0.0;
-	}
-	
-	RecordClientDemo(client);
-	
-	if(!g_stvRecording)
-	{
-		ToggleSTV();
-	}
-}
-
-public void OnClientDisconnect_Post(int client)
-{
-	if(GetClientCount() <= 1 && g_stvRecording)
-	{
-		ToggleSTV();
-	}
-	
-	//g_clientRecording[client] = false;
 }
 
 public Action OnTeam(int client, const char[] command, int argc)
@@ -918,10 +914,10 @@ void DB_results_callback(Database db, DBResultSet results, const char[] error, i
 	float reconTime = SQL_FetchFloat(results, 0);
 	float assaultTime = SQL_FetchFloat(results, 1);
 	float supportTime = SQL_FetchFloat(results, 2);
-
-	PrintToConsole(client, "[BHOP] Your Recon top score for %s: %f", g_mapName, reconTime);
-	PrintToConsole(client, "[BHOP] Your Assault top score for %s: %f", g_mapName, assaultTime);
-	PrintToConsole(client, "[BHOP] Your Support top score for %s: %f", g_mapName, supportTime);
+	PrintToConsoleAll("[BHOP] Your best scores for %s:", g_mapName);
+	PrintToConsole(client, "[BHOP] Recon: %f", reconTime);
+	PrintToConsole(client, "[BHOP] Assault: %f", assaultTime);
+	PrintToConsole(client, "[BHOP] Support: %f", supportTime);
 }
 
 void DB_retrieveTopScore()
@@ -968,6 +964,7 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	char steamID[65];
 	float time;
 	
+	PrintToConsoleAll("[BHOP] Top scores for %s:", g_mapName);
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
 	PrintToConsoleAll("Top Recon: %s Time: %f", steamID, time);
