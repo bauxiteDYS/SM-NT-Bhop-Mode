@@ -1,10 +1,11 @@
 # SM-NT-Bhop-Mode
 Sourcemod plugin for Neotokyo that adds a bhop test mode  
 
-**Experimental** Bhop game mode for neotokyo:  
+**Bhop game mode for neotokyo:**  
 - Go (bhop!?) from one trigger to the other to get a print of your time, compete with other players to be faster!
 - Use the command `!topscores` to get a print in console of the current class records for the current server, `0.0` if no record is set.
-- Use the command `!myscores` to get your scores in console.
+- Use the command `!myscores` to get your scores in console, `0.0` if no record is set.
+- Use the command  `!reset` to teleport back to spawn and reset your hop, can be used at any time.
 - Use `kill` or `retry` in console to change class, as the map should be in warmup mode.
 - If you have a bad start, you can hop back over the start line, which resets your time and gives you full aux. Times only count from when the plugin prints "start hopping".
 - Health dropping to 50 is a sign that your time is being recorded.
@@ -14,7 +15,8 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
 - Might be incompatible with some plugins, unknown which at the moment, but unlikely.
  
 **Instructions for Mappers:**  
-- Add `info_player_defender` entities where you want the players to spawn, they can only play on NSF so maybe 32 spawns will be needed, just in case the server is completely full (not recommended)
+- Add `info_player_defender` entities where you want the players to spawn, they can only play on NSF so maybe 32 spawns will be needed, just in case the server is completely full (not recommended).
+- Example maps for both types of trigger setup included in the `map_vmfs` folder.
 
 **For normal course (Players bhop from start to finish, in one direction):**  
 - Create two `trigger_multiple` entities on a map set to `ctg`, between which the players will race, each trigger should be at least 32 units depth.
