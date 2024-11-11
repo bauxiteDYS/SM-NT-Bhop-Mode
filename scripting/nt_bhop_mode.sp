@@ -5,7 +5,10 @@
 
 #pragma semicolon 1
 #pragma newdecls required
+
 #define DEBUG false
+
+static char g_mapName[32];
 static char g_className[][] = {
 	"Unknown",
 	"Recon",
@@ -15,7 +18,6 @@ static char g_className[][] = {
 
 Database hDB;
 ConVar g_cvarTeamBalance;
-static char g_mapName[32];
 float g_topScore[3+1]; // retrieve from database maybe or leave as session only
 float g_allTimes[NEO_MAXPLAYERS+1][3+1];
 float g_time[NEO_MAXPLAYERS+1];
@@ -30,57 +32,20 @@ bool g_inBhopArea[NEO_MAXPLAYERS+1];
 bool g_inStartArea[NEO_MAXPLAYERS+1];
 bool g_hopping[NEO_MAXPLAYERS+1];
 bool g_bhopMap;
-bool g_circularCourse;
 bool g_lateLoad;
+bool g_stvRecording;
+//bool g_clientRecording[NEO_MAXPLAYERS+1];
 int g_triggerOne;
 int g_triggerStart;
 int g_triggerFinish;
 int g_triggerBhopArea;
 int g_triggerStartArea;
-// reset porting and bhoparea (player pos) during certain situations where they can't possible be hopping?
-void ResetClient(int client, int class = CLASS_NONE, bool teleport = false)
-{	//reset should probably slow the player down as well
-	g_hopping[client] = false;
-	g_newTime[client] = 0.0;
-	g_oldTime[client] = 0.0;
-	
-	if(!g_circularCourse)
-	{
-		g_touchedStart[client] = false;
-		g_touchedFinish[client] = false;
-	}
-	
-	if(!IsClientInGame(client))
-	{
-		return;
-	}
-	
-	if(IsPlayerAlive(client))
-	{
-		SetEntityHealth(client, 100);
-		
-		if(!g_circularCourse && teleport)
-		{
-			TeleportMe(client);
-		}
-	}
-	
-	if(class > CLASS_NONE)
-	{
-		if(class != CLASS_SUPPORT)
-		{
-			SetPlayerAUX(client, 100.0);
-		}
-	
-		PrintToChat(client, "[BHOP] You have been reset");
-	}
-}
 
 public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.5.7",
+	version = "0.5.9",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -163,51 +128,7 @@ public void OnMapStart()
 	
 	HookTriggers();
 	
-	for(int client = 1; client <= MaxClients; client++)
-	{
-		ResetClient(client);
-		g_inBhopArea[client] = false;
-		g_portingClient[client] = false;
-	}
-	
 	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8);
-	
-	// Stop demos when no players etc
-	
-	char mapName[32];
-	GetCurrentMap(mapName, sizeof(mapName));
-		
-	char timestamp[16];
-	FormatTime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M");
-		
-	char demoName[PLATFORM_MAX_PATH];
-	Format(demoName, sizeof(demoName), "%s_%s", mapName, timestamp);
-		
-	ServerCommand("tv_stoprecord");
-	ServerCommand("tv_record \"%s\"", demoName);
-}
-
-public void OnConfigsExecuted()
-{
-	if(!g_bhopMap)
-	{
-		return;
-	}
-	
-	// hook change in case it gets toggled on somehow
-	
-	g_cvarTeamBalance = FindConVar("neottb_enable");
-	if(g_cvarTeamBalance != null)
-	{
-		g_cvarTeamBalance.SetInt(0);
-		PrintToServer("[BHOP] Disabling team balancing");
-	}
-	else
-	{
-		PrintToServer("[BHOP] Team balancer plugin not found");
-	}
-	
-	DB_init();
 }
 
 public void OnMapEnd()
@@ -227,7 +148,178 @@ public void OnMapEnd()
 		}
 	}
 	
+	for(int client = 1; client <= MaxClients; client++)
+	{
+		ResetClient(client, _, true, true);
+		//g_clientRecording[client] = false;
+	}
+	
 	StoreToAddress(view_as<Address>(0x2245552c), '-', NumberType_Int8);
+	
+	g_stvRecording = false;
+}
+
+void ToggleSTV()
+{
+	if(g_stvRecording)
+	{
+		ServerCommand("tv_stoprecord");
+		g_stvRecording = false;
+	}
+	else
+	{
+		char timestamp[16];
+		FormatTime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M");
+		
+		char demoName[PLATFORM_MAX_PATH];
+		Format(demoName, sizeof(demoName), "%s_%s", g_mapName, timestamp);
+		
+		ServerCommand("tv_stoprecord");
+		ServerCommand("tv_record \"%s\"", demoName);
+		g_stvRecording = true;
+	}
+}
+
+void RecordClientDemo(int client)
+{
+	char timestamp[16];
+	FormatTime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M");
+	
+	char demoName[PLATFORM_MAX_PATH];
+	Format(demoName, sizeof(demoName), "%s_%s", g_mapName, timestamp);
+	
+	ClientCommand(client, "stop");
+	ClientCommand(client, "record %s", demoName); //is this right
+	//g_clientRecording[client] = true;
+}
+
+public void OnConfigsExecuted()
+{
+	static bool changeHook;
+	
+	if(!g_bhopMap)
+	{
+		if(changeHook)
+		{
+			g_cvarTeamBalance.RemoveChangeHook(CvarChanged_TeamBalance);
+			changeHook = false;
+		}
+		
+		return;
+	}
+	
+	g_cvarTeamBalance = FindConVar("neottb_enable");
+	
+	if(g_cvarTeamBalance != null)
+	{
+		g_cvarTeamBalance.SetInt(0);
+		
+		if(!changeHook)
+		{
+			g_cvarTeamBalance.AddChangeHook(CvarChanged_TeamBalance);
+			changeHook = true;
+		}
+		
+		PrintToServer("[BHOP] Disabling team balancing");
+	}
+	else
+	{
+		PrintToServer("[BHOP] Team balancer plugin not found");
+	}
+	
+	DB_init();
+}
+
+public void CvarChanged_TeamBalance(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if(!g_bhopMap)
+	{
+		return;
+	}
+	
+	if(g_cvarTeamBalance.IntValue != 0)
+	{
+		g_cvarTeamBalance.SetInt(0);
+	}
+}
+
+void ResetClient(int client, int class = CLASS_NONE, bool pos = false, bool port = false)
+{
+	g_hopping[client] = false;
+	g_newTime[client] = 0.0;
+	g_oldTime[client] = 0.0;
+	
+	g_touchedStart[client] = false;
+	g_touchedFinish[client] = false;
+	
+	if(pos)
+	{
+		g_inBhopArea[client] = false;
+		g_inStartArea[client] = false;
+	}
+	
+	if(port || !IsClientInGame(client) || !IsPlayerAlive(client))
+	{
+		g_portingClient[client] = false;
+		// if port was started then it will reset in the timer, when there is no chance of port happening
+		return;
+	}
+	
+	SetEntityHealth(client, 100);
+	
+	if(class > CLASS_NONE)
+	{
+		if(class != CLASS_SUPPORT)
+		{
+			SetPlayerAUX(client, 100.0);
+		}
+	
+		PrintToChat(client, "[BHOP] You have been reset");
+	}
+}
+
+void TeleportMe(int client) 
+{
+	if(!IsClientInGame(client) || !IsPlayerAlive(client))
+	{
+		return;
+	}
+	
+	int userid = GetClientUserId(client);
+	
+	if(!g_portingClient[client])
+	{
+		g_portingClient[client] = true;
+		PrintCenterText(client, "Teleporting to spawn");
+		CreateTimer(0.3, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+public Action TeleportMeTimer(Handle timer, int userid)
+{
+	static float noSpeed[] = {0.0, 0.0, 0.0};
+	int class;
+	int client = GetClientOfUserId(userid);
+	
+	if(client <= 0 || !IsClientInGame(client))
+	{
+		return Plugin_Stop;
+	}
+	
+	if(IsPlayerAlive(client))
+	{
+		if(g_spawnOrigin[client][0] == 0.0 && g_spawnOrigin[client][1] == 0.0 && g_spawnOrigin[client][2] == 0.0)
+		{
+			AddVectors(g_spawnOrigin[client], g_defenderOrigin, g_spawnOrigin[client]);
+		}
+		
+		TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
+		class = GetPlayerClass(client);
+	}
+	
+	ResetClient(client, class, true, true);
+	
+	return Plugin_Stop;
 }
 
 public Action Cmd_Reset(int client, int args)
@@ -249,39 +341,7 @@ public Action Cmd_Reset(int client, int args)
 	
 	int class = GetPlayerClass(client);
 	ResetClient(client, class, true);
-	
 	return Plugin_Handled;
-}
-
-void TeleportMe(int client) 
-{
-	int userid = GetClientUserId(client);
-	
-	if(!g_portingClient[client])
-	{
-		g_portingClient[client] = true;
-		PrintCenterText(client, "Teleporting to spawn");
-		CreateTimer(0.5, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
-	}
-}
-
-public Action TeleportMeTimer(Handle timer, int userid)
-{
-	static float noSpeed[] = {0.0, 0.0, 0.0};
-	int client = GetClientOfUserId(userid);
-	
-	if(client > 0 && IsClientInGame(client) && IsPlayerAlive(client) && !g_hopping[client])
-	{
-		if(g_spawnOrigin[client][0] == 0.0 && g_spawnOrigin[client][1] == 0.0 && g_spawnOrigin[client][2] == 0.0)
-		{
-			AddVectors(g_spawnOrigin[client], g_defenderOrigin, g_spawnOrigin[client]);
-		}
-		
-		TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
-	}
-	
-	g_portingClient[client] = false;
-	return Plugin_Stop;
 }
 
 public Action Cmd_ClientScores(int client, int args)
@@ -321,24 +381,30 @@ public void OnClientPutInServer(int client)
 	}
 	
 	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
-}
-
-public void OnClientDisconnect_Post(int client)
-{
-	if(!g_bhopMap)
-	{
-		return;
-	}
 	
-	ResetClient(client);
-	
-	g_inBhopArea[client] = false;
-	g_portingClient[client] = false;
+	ResetClient(client, _, true, true);
 	
 	for(int c = 1; c <= 3; c++)
 	{
 		g_allTimes[client][c] = 0.0;
 	}
+	
+	RecordClientDemo(client);
+	
+	if(!g_stvRecording)
+	{
+		ToggleSTV();
+	}
+}
+
+public void OnClientDisconnect_Post(int client)
+{
+	if(GetClientCount() <= 1 && g_stvRecording)
+	{
+		ToggleSTV();
+	}
+	
+	//g_clientRecording[client] = false;
 }
 
 public Action OnTeam(int client, const char[] command, int argc)
@@ -369,8 +435,7 @@ public void Event_RoundStartPost(Event event, const char[] name, bool dontBroadc
 	
 	for(int client = 1; client <= MaxClients; client++)
 	{
-		ResetClient(client);
-		g_inBhopArea[client] = false;
+		ResetClient(client, _, true, true);
 	}
 }
 
@@ -399,13 +464,11 @@ void HookTriggers()
 	{
 		HookSingleEntityOutput(g_triggerOne, "OnStartTouch", Trigger_OnStartTouchOne);
 		HookSingleEntityOutput(g_triggerOne, "OnEndTouch", Trigger_OnEndTouchOne);
-		g_circularCourse = true;
 	}
 	else if(g_triggerStart != -1 && g_triggerFinish != -1)
 	{
 		HookSingleEntityOutput(g_triggerStart, "OnEndTouch", Trigger_OnEndTouchStart);
 		HookSingleEntityOutput(g_triggerFinish, "OnEndTouch", Trigger_OnEndTouchFinish);
-		g_circularCourse = false;
 	}
 	else
 	{
@@ -436,6 +499,23 @@ void HookTriggers()
 	}
 }
 
+public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroadcast)
+{	
+	if(!g_bhopMap)
+	{
+		return;
+	}
+	
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	
+	if(client <= 0 || client > MaxClients)
+	{
+		return;
+	}
+	
+	ResetClient(client, _, true, true);
+}
+
 public void Event_PlayerSpawnPost(Event event, const char[] name, bool dontBroadcast)
 {	
 	if(!g_bhopMap)
@@ -462,11 +542,7 @@ void SetupPlayer(int userid)
 	PrintToChat(client, "[BHOP] Commands: !topscores, !myscores, !reset");
 	
 	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
-	
-	g_inBhopArea[client] = false;
-	
 	GetClientAbsOrigin(client, g_spawnOrigin[client]);
-	
 	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
@@ -514,25 +590,6 @@ public Action StripWeps(Handle timer, int userid) // GIVE knives to non-sup?
 	return Plugin_Stop;
 }
 
-public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroadcast)
-{	
-	if(!g_bhopMap)
-	{
-		return;
-	}
-	
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	
-	if(client <= 0 || client > MaxClients)
-	{
-		return;
-	}
-	
-	ResetClient(client);
-	g_inBhopArea[client] = false;
-	g_portingClient[client] = false;
-}
-
 public Action OnWeaponDrop(int client, int weapon)
 {
 	if(!g_bhopMap)
@@ -570,18 +627,21 @@ void Trigger_OnStartTouchOne(const char[] output, int caller, int activator, flo
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		ResetClient(activator);
+		ResetClient(activator, _, true);
+		TeleportMe(activator);
+		return;
 	}
 	
 	if(g_hopping[activator] && g_inBhopArea[activator])
 	{
-		ResetClient(activator, class, false);
+		ResetClient(activator, class, true);
+		TeleportMe(activator);
 		return;
 	}
 	
 	if(g_hopping[activator] && g_inStartArea[activator])
 	{
-		CheckTime(activator, class);
+		CheckTime(activator, class, false);
 		return;
 	}
 }
@@ -593,7 +653,8 @@ void Trigger_OnEndTouchOne(const char[] output, int caller, int activator, float
 	if(class < 1 || class > 3)
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
-		ResetClient(activator);
+		ResetClient(activator,_, true);
+		TeleportMe(activator);
 	}
 
 	if(!g_hopping[activator] && g_inBhopArea[activator])
@@ -611,6 +672,7 @@ void Trigger_OnEndTouchStart(const char[] output, int caller, int activator, flo
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
 		ResetClient(activator, _, true);
+		TeleportMe(activator);
 	}
 	
 	if(!g_touchedStart[activator] && !g_touchedFinish[activator] && g_inBhopArea[activator])
@@ -627,7 +689,8 @@ void Trigger_OnEndTouchStart(const char[] output, int caller, int activator, flo
 	
 	if (g_touchedStart[activator] && g_inStartArea[activator])
 	{
-		ResetClient(activator, class, false);
+		ResetClient(activator, class, true);
+		TeleportMe(activator);
 		return;
 	}
 }
@@ -640,6 +703,7 @@ void Trigger_OnEndTouchFinish(const char[] output, int caller, int activator, fl
 	{
 		PrintToChat(activator, "[BHOP] Error: Failed to get class, you were reset");
 		ResetClient(activator, _, true);
+		TeleportMe(activator);
 		return;
 	}
 	
@@ -647,7 +711,8 @@ void Trigger_OnEndTouchFinish(const char[] output, int caller, int activator, fl
 	
 	if(!g_touchedStart[activator])
 	{
-		ResetClient(activator, class, true);
+		ResetClient(activator, class);
+		TeleportMe(activator);
 		PrintToChat(activator, "[BHOP] Start your bhop from the start line!");
 		return;
 	}
@@ -669,18 +734,26 @@ void StartHop(int client)
 
 }
 
-void CheckTime(int client, int class)
+void CheckTime(int client, int class, bool teleport = true)
 {
 	g_newTime[client] = GetGameTime();
 	g_time[client] = g_newTime[client] - g_oldTime[client];
 	PrintToChat(client, "[BHOP] Your time: %f", g_time[client]);
+	
 	ResetClient(client, class, true);
+	
+	if(teleport)
+	{
+		TeleportMe(client);
+	}
+	
 	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) //use floatcompare?
 	{
 		g_topScore[class] = g_time[client];
 		PrintToChatAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
 		PrintToConsoleAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
 	}
+	
 	if(g_time[client] < g_allTimes[client][class] || g_allTimes[client][class] == 0.0)
 	{
 		g_allTimes[client][class] = g_time[client];
@@ -742,7 +815,7 @@ void DB_insertScore(int client, int class) // only insert 1 record at a time per
 	char steamID[32];
 	if(!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID)))
 	{
-		PrintToChat(client, "[BHOP] Error getting your SteamID, your tim was not saved!");
+		PrintToChat(client, "[BHOP] Error getting your SteamID, your time was not saved!");
 		PrintToServer("[BHOP] Error getting SteamID during score insert");
 		return;
 	}
@@ -801,7 +874,7 @@ void DB_retrieveScore(int client)
 	char steamID[32];
 	if(!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID)))
 	{
-		PrintToChat(client, "[BHOP] Error getting your SteamID, your tim was not saved!");
+		PrintToChat(client, "[BHOP] Error getting your SteamID, could not retrieve your score!");
 		PrintToServer("[BHOP] Error getting SteamID during score retrieval");
 		return;
 	}
