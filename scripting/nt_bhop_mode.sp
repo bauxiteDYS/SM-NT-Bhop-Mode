@@ -8,7 +8,7 @@
 
 #define DEBUG false
 
-static char g_mapName[32];
+static char g_mapName[64];
 static char g_className[][] = {
 	"Unknown",
 	"Recon",
@@ -34,6 +34,7 @@ bool g_hopping[NEO_MAXPLAYERS+1];
 bool g_bhopMap;
 bool g_lateLoad;
 bool g_stvRecording;
+bool g_strippingWep[NEO_MAXPLAYERS+1];
 //bool g_clientRecording[NEO_MAXPLAYERS+1];
 int g_triggerOne;
 int g_triggerStart;
@@ -45,7 +46,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.6.0",
+	version = "0.6.3",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -57,19 +58,38 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart()
 {
+	#if DEBUG
+	RegConsoleCmd("sm_bhop", DebugBhop);
+	#endif
+	
 	if(g_lateLoad)
 	{
 		OnMapInit(); // doesn't seem like you need to also call mapstart or cfgs, as they are called again on plugin load
 		
 		for(int client = 1; client <= MaxClients; client++)
 		{
-			if(IsClientInGame(client))
+			if(IsClientInGame(client) && !IsFakeClient(client))
 			{
 				OnClientPutInServer(client);
 			}
 		}
 	}
 }
+
+#if DEBUG
+public Action DebugBhop(int client, int args)
+{
+	for(int c = 1; c <= MaxClients; c++)
+	{
+		if(IsFakeClient(c))
+		{
+			ChangeClientTeam(c, 3);
+		}
+	}
+	
+	return Plugin_Handled;
+}
+#endif
 
 public void OnClientPutInServer(int client)
 {
@@ -78,9 +98,15 @@ public void OnClientPutInServer(int client)
 		return;
 	}
 	
+	if(IsFakeClient(client))
+	{
+		return;
+	}
+	
 	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
 	
 	ResetClient(client, _, true, true);
+	g_strippingWep[client] = false;
 	
 	for(int c = 1; c <= 3; c++)
 	{
@@ -102,6 +128,7 @@ public void OnClientDisconnect_Post(int client)
 		ToggleSTV();
 	}
 	
+	g_strippingWep[client] = false;
 	//g_clientRecording[client] = false;
 }
 
@@ -161,7 +188,6 @@ public void OnMapStart()
 	}
 	
 	HookTriggers();
-	
 	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8); // Thanks rain!
 }
 
@@ -189,7 +215,6 @@ public void OnMapEnd()
 	}
 	
 	StoreToAddress(view_as<Address>(0x2245552c), '-', NumberType_Int8);
-	
 	g_stvRecording = false;
 }
 
@@ -213,9 +238,14 @@ void ToggleSTV()
 		g_stvRecording = true;
 	}
 }
-/*
+
 void RecordClientDemo(int client)
 {
+	if(IsFakeClient(client))
+	{
+		return;
+	}
+	
 	char timestamp[16];
 	FormatTime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M");
 	
@@ -224,9 +254,9 @@ void RecordClientDemo(int client)
 	
 	ClientCommand(client, "stop");
 	ClientCommand(client, "record %s", demoName); //is this right
-	g_clientRecording[client] = true;
+	//g_clientRecording[client] = true;
 }
-*/
+
 public void OnConfigsExecuted()
 {
 	static bool changeHook;
@@ -319,12 +349,11 @@ void TeleportMe(int client)
 		return;
 	}
 	
-	int userid = GetClientUserId(client);
-	
 	if(!g_portingClient[client])
 	{
 		g_portingClient[client] = true;
 		PrintCenterText(client, "Teleporting to spawn");
+		int userid = GetClientUserId(client);
 		CreateTimer(0.3, TeleportMeTimer, userid, TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
@@ -332,13 +361,14 @@ void TeleportMe(int client)
 public Action TeleportMeTimer(Handle timer, int userid)
 {
 	static float noSpeed[] = {0.0, 0.0, 0.0};
-	int class;
 	int client = GetClientOfUserId(userid);
 	
 	if(client <= 0 || !IsClientInGame(client))
 	{
 		return Plugin_Stop;
 	}
+	
+	int class = 0;
 	
 	if(IsPlayerAlive(client))
 	{
@@ -381,7 +411,7 @@ public Action Cmd_ClientScores(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(!IsClientInGame(client) || client <= 0 || client > MaxClients || args > 0)
+	if(client <= 0 || client > MaxClients || args > 0 || !IsClientInGame(client))
 	{
 		return Plugin_Handled;
 	}
@@ -393,7 +423,12 @@ public Action Cmd_ClientScores(int client, int args)
 
 public Action Cmd_TopScores(int client, int args)
 {
-	if(!IsClientInGame(client) || client < 0 || client > MaxClients || args > 0)
+	if(!g_bhopMap)
+	{
+		return Plugin_Handled;
+	}
+	
+	if(client <= 0 || client > MaxClients || args > 0 || !IsClientInGame(client))
 	{
 		return Plugin_Handled;
 	}
@@ -405,7 +440,12 @@ public Action Cmd_TopScores(int client, int args)
 
 public Action OnTeam(int client, const char[] command, int argc)
 {
-	if(!g_bhopMap || argc != 1 || !IsClientInGame(client))
+	if(!g_bhopMap)
+	{
+		return Plugin_Handled;
+	}
+	
+	if(argc != 1 || !IsClientInGame(client))
 	{
 		return Plugin_Continue;
 	}
@@ -521,68 +561,50 @@ public void Event_PlayerSpawnPost(Event event, const char[] name, bool dontBroad
 	
 	int userid = event.GetInt("userid");
 	
-	RequestFrame(SetupPlayer, userid);
+	RequestFrame(SetupPlayer, userid); // check this for perf issues
 }
 
 void SetupPlayer(int userid)
 {
 	int client = GetClientOfUserId(userid);
 	
-	if(client == 0 || !IsPlayerAlive(client) || GetClientTeam(client) != TEAM_NSF)
+	if(client == 0 || !IsPlayerAlive(client))
 	{
 		return;
 	}
 	
 	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
-	PrintToChat(client, "[BHOP] If you try to go the wrong direction, you may be reset");
 	PrintToChat(client, "[BHOP] Commands: !topscores, !myscores, !reset");
 	
 	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
 	GetClientAbsOrigin(client, g_spawnOrigin[client]);
-	CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
+	
+	if(!g_strippingWep[client])
+	{
+		g_strippingWep[client] = true;
+		CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
+	}
 }
 
-public Action StripWeps(Handle timer, int userid) // GIVE knives to non-sup?
+public Action StripWeps(Handle timer, int userid)
 {
 	int client = GetClientOfUserId(userid);
 	
-	if(client == 0 || !IsClientInGame(client) || !IsPlayerAlive(client))
+	if(client == 0 || !IsPlayerAlive(client))
 	{
 		return Plugin_Stop;
 	}
 	
-	int wep;
-	int pistol;
+	StripPlayerWeapons(client, false);
 	
-	pistol = GetEntPropEnt(client, Prop_Send, "m_hMyWeapons", 1);
-	
-	if(pistol > 0 && IsValidEdict(pistol))
-	{
-		int owner = GetEntPropEnt(pistol, Prop_Data, "m_hOwnerEntity");
+	int newWeapon = GivePlayerItem(client, "weapon_knife"); 
 
-		if (client == owner)
-		{
-			SetEntProp(pistol, Prop_Send, "bAimed", false);
-			SetEntPropEnt(client, Prop_Data, "m_hActiveWeapon", pistol);
-		}
-	}
-	
-	for(int i = 0; i <= 4; i++)
+	if(newWeapon != -1)
 	{
-		if(i == 1)
-		{
-			continue;
-		}
-		
-		wep = GetEntPropEnt(client, Prop_Send, "m_hMyWeapons", i);
-		
-		if(wep > 0 && IsValidEdict(wep))
-		{
-			RemovePlayerItem(client, wep);
-			RemoveEdict(wep);
-		}
+		AcceptEntityInput(newWeapon, "use", client, client);
 	}
 	
+	g_strippingWep[client] = false;
 	return Plugin_Stop;
 }
 
@@ -805,10 +827,8 @@ void TxnFailure_Init(Database db, any data, int numQueries, const char[] error, 
 
 void DB_insertScore(int client, int class) // only insert 1 record at a time perhaps
 {	
-	char mapName[64];
-	GetCurrentMap(mapName, sizeof(mapName));
-	
 	char steamID[32];
+	
 	if(!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID)))
 	{
 		PrintToChat(client, "[BHOP] Error getting your SteamID, your time was not saved!");
@@ -844,7 +864,7 @@ void DB_insertScore(int client, int class) // only insert 1 record at a time per
 	ELSE nt_bhop_scores.supportTime \
 	END;\
 	",
-	steamID, mapName, reconTime, assaultTime, supportTime);
+	steamID, g_mapName, reconTime, assaultTime, supportTime);
 	
 	hDB.Query(DB_fast_callback, query, _, DBPrio_Normal);
 }
@@ -864,10 +884,8 @@ void DB_fast_callback(Database db, DBResultSet results, const char[] error, any 
 
 void DB_retrieveScore(int client)
 {
-	char mapName[64];
-	GetCurrentMap(mapName, sizeof(mapName));
-	
 	char steamID[32];
+	
 	if(!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID)))
 	{
 		PrintToChat(client, "[BHOP] Error getting your SteamID, could not retrieve your score!");
@@ -884,10 +902,9 @@ void DB_retrieveScore(int client)
 	WHERE steamID = '%s' \
 	AND mapName = '%s';\
 	",
-	steamID, mapName);
+	steamID, g_mapName);
 	
 	int userid = GetClientUserId(client);
-	
 	hDB.Query(DB_results_callback, query, userid, DBPrio_Normal);
 }
 
@@ -922,9 +939,6 @@ void DB_results_callback(Database db, DBResultSet results, const char[] error, i
 
 void DB_retrieveTopScore()
 {
-	char mapName[64];
-	GetCurrentMap(mapName, sizeof(mapName));
-	
 	char query[1664];
 	
 	hDB.Format(query, sizeof(query), 
@@ -941,7 +955,7 @@ void DB_retrieveTopScore()
 	FROM nt_bhop_scores \
 	WHERE mapName = '%s' AND supportTime > 0.0; \
 	",
-	mapName, mapName, mapName);
+	g_mapName, g_mapName, g_mapName);
 	
 	hDB.Query(DB_top_callback, query, _, DBPrio_Normal);
 }
