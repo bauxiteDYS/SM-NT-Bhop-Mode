@@ -68,7 +68,7 @@ public void OnPluginStart()
 		
 		for(int client = 1; client <= MaxClients; client++)
 		{
-			if(IsClientInGame(client) && !IsFakeClient(client))
+			if(IsClientInGame(client))
 			{
 				OnClientPutInServer(client);
 			}
@@ -597,11 +597,25 @@ public Action StripWeps(Handle timer, int userid)
 	
 	StripPlayerWeapons(client, false);
 	
-	int newWeapon = GivePlayerItem(client, "weapon_knife"); 
-
-	if(newWeapon != -1)
+	int class = GetPlayerClass(client);
+	int wepKnife = GivePlayerItem(client, "weapon_knife"); 
+	
+	if(wepKnife != -1)
 	{
-		AcceptEntityInput(newWeapon, "use", client, client);
+		AcceptEntityInput(wepKnife, "use", client, client);
+	}
+
+	if(class == CLASS_RECON)
+	{
+		GivePlayerItem(client, "weapon_milso");
+	}
+	else if(class == CLASS_ASSAULT)
+	{
+		GivePlayerItem(client, "weapon_tachi");
+	}
+	else
+	{
+		GivePlayerItem(client, "weapon_kyla");
 	}
 	
 	g_strippingWep[client] = false;
