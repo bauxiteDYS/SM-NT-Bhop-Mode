@@ -13,11 +13,11 @@ Sourcemod plugin for Neotokyo that adds a bhop test mode
 **Instructions for Server Operators:**  
 - Add plugin and _bhop maps to the server, whenever they are voted the plugin should activate otherwise it does nothing
 - Might be incompatible with some plugins, unknown which at the moment, but unlikely.
-- Maps included in `compiled_maps` folder.
-- Records demos if STV is enabled to the game directory (cvars and customisation to come later).
+- Latest maps included in `compiled_maps` folder.
+- Records demos (if STV is enabled) to the game directory (cvars and customisation to come later).
  
 **Instructions for Mappers:**  
-- Add `info_player_defender` entities where you want the players to spawn, they can only play on NSF so maybe 32 spawns will be needed, just in case the server is completely full (not recommended).
+- Add `info_player_defender` entities where you want the players to spawn, they can only play on NSF so 32 defender spawns will be needed, just in case the server is completely full, although it isn't recommended to play this mode at such high player counts.
 - Example maps for both types of trigger setup included in the `map_vmfs` folder.
 
 **For normal course (Players bhop from start to finish, in one direction):**  
