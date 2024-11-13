@@ -259,14 +259,14 @@ void RecordClientDemo(int client)
 
 public void OnConfigsExecuted()
 {
-	static bool changeHook;
+	static bool BalanceChangeHook;
 	
 	if(!g_bhopMap)
 	{
-		if(changeHook)
+		if(BalanceChangeHook)
 		{
 			g_cvarTeamBalance.RemoveChangeHook(CvarChanged_TeamBalance);
-			changeHook = false;
+			BalanceChangeHook = false;
 		}
 		
 		return;
@@ -278,10 +278,10 @@ public void OnConfigsExecuted()
 	{
 		g_cvarTeamBalance.SetInt(0);
 		
-		if(!changeHook)
+		if(!BalanceChangeHook)
 		{
 			g_cvarTeamBalance.AddChangeHook(CvarChanged_TeamBalance);
-			changeHook = true;
+			BalanceChangeHook = true;
 		}
 		
 		PrintToServer("[BHOP] Disabling team balancing");
@@ -376,7 +376,14 @@ public Action TeleportMeTimer(Handle timer, int userid)
 		{
 			AddVectors(g_spawnOrigin[client], g_defenderOrigin, g_spawnOrigin[client]);
 		}
-		
+		#if DEBUG
+		else if(GetVectorDistance(g_spawnOrigin[client], g_defenderOrigin) > 512)
+		{ // if you spawn too far away or on the wrong team/side of the map
+			g_spawnOrigin[client][0] = g_defenderOrigin[0];
+			g_spawnOrigin[client][1] = g_defenderOrigin[1];
+			g_spawnOrigin[client][2] = g_defenderOrigin[2];
+		}
+		#endif
 		TeleportEntity(client, g_spawnOrigin[client], NULL_VECTOR, noSpeed);
 		class = GetPlayerClass(client);
 	}
@@ -561,14 +568,14 @@ public void Event_PlayerSpawnPost(Event event, const char[] name, bool dontBroad
 	
 	int userid = event.GetInt("userid");
 	
-	RequestFrame(SetupPlayer, userid); // check this for perf issues
+	RequestFrame(SetupPlayer, userid);
 }
 
 void SetupPlayer(int userid)
 {
 	int client = GetClientOfUserId(userid);
 	
-	if(client == 0 || !IsPlayerAlive(client))
+	if(client == 0 || !IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		return;
 	}
@@ -590,7 +597,7 @@ public Action StripWeps(Handle timer, int userid)
 {
 	int client = GetClientOfUserId(userid);
 	
-	if(client == 0 || !IsPlayerAlive(client))
+	if(client == 0 || !IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		return Plugin_Stop;
 	}
