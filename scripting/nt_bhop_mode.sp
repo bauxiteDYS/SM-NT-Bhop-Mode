@@ -61,7 +61,7 @@ public void OnPluginStart()
 	#if DEBUG
 	RegConsoleCmd("sm_bhop", DebugBhop);
 	#endif
-	
+	//hook sv_cheats and airaccel etc
 	if(g_lateLoad)
 	{
 		OnMapInit(); // doesn't seem like you need to also call mapstart or cfgs, as they are called again on plugin load
@@ -620,7 +620,7 @@ public Action StripWeps(Handle timer, int userid)
 	{
 		GivePlayerItem(client, "weapon_tachi");
 	}
-	else
+	else if (class == CLASS_SUPPORT)
 	{
 		GivePlayerItem(client, "weapon_kyla");
 	}
