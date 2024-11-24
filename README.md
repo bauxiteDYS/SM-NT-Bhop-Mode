@@ -1,5 +1,5 @@
 # SM-NT-Bhop-Mode
-Sourcemod plugin for Neotokyo that adds a bhop test mode  
+Sourcemod plugin for Neotokyo that adds a bhop competition/test mode. It's meant to allow players to get a time from start to finish of a particular course, this could be for testing purposes, or for competiting with other players, the settings are meant to be the same as a standard competitive game so that any movements can be replicated in real gameplay.  
 
 **Bhop game mode for neotokyo:**  
 - Go (bhop!?) from one trigger to the other to get a print of your time, compete with other players to be faster!
