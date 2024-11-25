@@ -1,5 +1,5 @@
 # SM-NT-Bhop-Mode
-Sourcemod plugin for Neotokyo that adds a bhop competition/test mode. It's meant to allow players to get a time from start to finish of a particular course, this could be for testing purposes, or for competiting with other players, the settings are meant to be the same as a standard competitive game so that any movements can be replicated in real gameplay.  
+Sourcemod plugin for Neotokyo that adds a bhop competition/test mode. It's meant to allow players to get a time from start to finish of a particular course, this could be for testing purposes, or for competing with other players, the settings are meant to be the same as a standard competitive game so that any movements can be replicated in real gameplay.  
 
 **Bhop game mode for neotokyo:**  
 - Go (bhop!?) from one trigger to the other to get a print of your time, compete with other players to be faster!
@@ -8,7 +8,7 @@ Sourcemod plugin for Neotokyo that adds a bhop competition/test mode. It's meant
 - Use the command  `!reset` to teleport back to spawn and reset your hop, can be used at any time.
 - Use `kill` or `retry` in console to change class, as the map should be in warmup mode.
 - If you have a bad start, you can hop back over the start line, which resets your time and gives you full aux. Times only count from when the plugin prints "start hopping".
-- Health dropping to 50 is a sign that your time is being recorded.
+- Health dropping to 50 is a sign that your time is being recorded, in addition to a timer and speedometer appearing in the centre of your screen.  
 
 **Instructions for Server Operators:**  
 - Add plugin and _bhop maps to the server, whenever they are voted the plugin should activate otherwise it does nothing
