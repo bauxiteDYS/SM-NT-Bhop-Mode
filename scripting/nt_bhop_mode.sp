@@ -6,7 +6,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define DEBUG false
+#define DEBUG false;
 
 static char g_mapName[64];
 static char g_className[][] = {
@@ -25,6 +25,9 @@ float g_newTime[NEO_MAXPLAYERS+1];
 float g_oldTime[NEO_MAXPLAYERS+1];
 float g_spawnOrigin[NEO_MAXPLAYERS+1][3];
 float g_defenderOrigin[3];
+float g_vel[3];
+float g_speed;
+float g_hopTimer;
 bool g_portingClient[NEO_MAXPLAYERS+1];
 bool g_touchedStart[NEO_MAXPLAYERS+1];
 bool g_touchedFinish[NEO_MAXPLAYERS+1];
@@ -46,7 +49,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.6.3",
+	version = "0.6.5",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -81,11 +84,13 @@ public Action DebugBhop(int client, int args)
 {
 	for(int c = 1; c <= MaxClients; c++)
 	{
-		if(IsFakeClient(c))
+		if(IsClientConnected(c) && IsFakeClient(c))
 		{
 			ChangeClientTeam(c, 3);
 		}
 	}
+	
+	GameRules_SetPropFloat("m_fRoundTimeLeft", 59940.00);
 	
 	return Plugin_Handled;
 }
@@ -105,14 +110,6 @@ public void OnClientPutInServer(int client)
 	
 	SDKHook(client, SDKHook_WeaponDrop, OnWeaponDrop);
 	
-	ResetClient(client, _, true, true);
-	g_strippingWep[client] = false;
-	
-	for(int c = 1; c <= 3; c++)
-	{
-		g_allTimes[client][c] = 0.0;
-	}
-	
 	//RecordClientDemo(client);
 	
 	if(!g_stvRecording)
@@ -128,8 +125,14 @@ public void OnClientDisconnect_Post(int client)
 		ToggleSTV();
 	}
 	
+	ResetClient(client, _, true, true);
 	g_strippingWep[client] = false;
 	//g_clientRecording[client] = false;
+	
+	for(int c = 1; c <= 3; c++)
+	{
+		g_allTimes[client][c] = 0.0;
+	}
 }
 
 public void OnMapInit()
@@ -189,6 +192,27 @@ public void OnMapStart()
 	
 	HookTriggers();
 	StoreToAddress(view_as<Address>(0x2245552c), 0, NumberType_Int8); // Thanks rain!
+	
+	CreateTimer(0.1, SpeedoMeter, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
+}
+
+public Action SpeedoMeter(Handle timer)
+{
+	for(int i = 1; i <= MaxClients; i++)
+	{
+		if(!g_hopping[i]) // || !IsClientInGame(i))
+		{
+			continue;
+		}
+		
+		GetEntPropVector(i, Prop_Data, "m_vecVelocity", g_vel);
+		g_speed = SquareRoot(g_vel[0] * g_vel[0] + g_vel[1] * g_vel[1]);
+		g_hopTimer = GetGameTime() - g_oldTime[i];
+		PrintCenterText(i, "Speed: %07.3f u/s - Timer: %07.3f s", g_speed, g_hopTimer); 
+		// brief flicker every 15s due to the game printing the (now empty) "no players on the other team" message
+	}
+	
+	return Plugin_Continue;
 }
 
 public void OnMapEnd()
@@ -338,7 +362,7 @@ void ResetClient(int client, int class = CLASS_NONE, bool pos = false, bool port
 			SetPlayerAUX(client, 100.0);
 		}
 	
-		PrintToChat(client, "[BHOP] You have been reset");
+		//PrintToChat(client, "[BHOP] You have been reset");
 	}
 }
 
@@ -566,6 +590,8 @@ public void Event_PlayerSpawnPost(Event event, const char[] name, bool dontBroad
 		return;
 	}
 	
+	GameRules_SetPropFloat("m_fRoundTimeLeft", 1199.00); // put this somewhere else?
+	
 	int userid = event.GetInt("userid");
 	
 	RequestFrame(SetupPlayer, userid);
@@ -589,7 +615,7 @@ void SetupPlayer(int userid)
 	if(!g_strippingWep[client])
 	{
 		g_strippingWep[client] = true;
-		CreateTimer(1.0, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
+		CreateTimer(0.75, StripWeps, userid, TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
 
@@ -795,9 +821,15 @@ void CheckTime(int client, int class, bool teleport = true)
 	
 	if(g_time[client] < g_allTimes[client][class] || g_allTimes[client][class] == 0.0)
 	{
+		float improvement = g_allTimes[client][class] - g_time[client];
 		g_allTimes[client][class] = g_time[client];
 		DB_insertScore(client, class);
 		PrintToChat(client,"[BHOP] You got your best time for the current session yet on %s", g_className[class]);
+		
+		if(improvement > 0.0)
+		{
+			PrintToChat(client,"[BHOP] An improvement of %.3f seconds", improvement);
+		}
 	}
 }
 
