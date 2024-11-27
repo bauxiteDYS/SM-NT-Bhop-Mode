@@ -6,7 +6,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define DEBUG true
+#define DEBUG false
 
 static char g_mapName[64];
 static char g_className[][] = {
