@@ -6,7 +6,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define DEBUG false
+#define DEBUG true
 
 static char g_mapName[64];
 static char g_className[][] = {
@@ -49,7 +49,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.6.5",
+	version = "0.6.6",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -208,8 +208,8 @@ public Action SpeedoMeter(Handle timer)
 		GetEntPropVector(i, Prop_Data, "m_vecVelocity", g_vel);
 		g_speed = SquareRoot(g_vel[0] * g_vel[0] + g_vel[1] * g_vel[1]);
 		g_hopTimer = GetGameTime() - g_oldTime[i];
-		PrintCenterText(i, "Speed: %07.3f u/s - Timer: %07.3f s", g_speed, g_hopTimer); 
-		// brief flicker every 15s due to the game printing the (now empty) "no players on the other team" message
+		PrintCenterText(i, "%07.3f s : Timer\n%07.3f u/s : Speed", g_hopTimer, g_speed); 
+		// brief flicker every 15s due to the game printing the (now empty) "no players on the other team" message unless round time is changed
 	}
 	
 	return Plugin_Continue;
@@ -855,8 +855,11 @@ void DB_init()
 	steamID	TEXT NOT NULL, \
 	mapName	TEXT NOT NULL, \
 	reconTime REAL NOT NULL DEFAULT 0.0, \
+	reconStamp TEXT NOT NULL DEFAULT 0, \
 	assaultTime REAL NOT NULL DEFAULT 0.0, \
+	assaultStamp TEXT NOT NULL DEFAULT 0, \
 	supportTime REAL NOT NULL DEFAULT 0.0, \
+	supportStamp TEXT NOT NULL DEFAULT 0, \
 	PRIMARY KEY(steamID, mapName) \
 	);\
 	");
@@ -878,7 +881,7 @@ void TxnFailure_Init(Database db, any data, int numQueries, const char[] error, 
     SetFailState("[BHOP] SQL Error Database init failure: [%d] %s", failIndex, error);
 }
 
-void DB_insertScore(int client, int class) // only insert 1 record at a time perhaps
+void DB_insertScore(int client, int class)
 {	
 	char steamID[32];
 	
@@ -888,36 +891,54 @@ void DB_insertScore(int client, int class) // only insert 1 record at a time per
 		PrintToServer("[BHOP] Error getting SteamID during score insert");
 		return;
 	}
+	
+	char className[8];
+	
+	if(class == 1)
+	{
+		strcopy(className, sizeof(className), "recon");
+	}
+	else if(class == 2)
+	{
+		strcopy(className, sizeof(className), "assault");
+	}
+	else if(class == 3)
+	{
+		strcopy(className, sizeof(className), "support");
+	}
+	
+	float classTime = g_allTimes[client][class];
 
-	float reconTime = g_allTimes[client][CLASS_RECON];
-	float assaultTime = g_allTimes[client][CLASS_ASSAULT];
-	float supportTime = g_allTimes[client][CLASS_SUPPORT];
+	char classStamp[16];
+	FormatTime(classStamp, sizeof(classStamp), "%Y%m%d%H%M%S", GetTime());
 	
-	char query[1664];
+	char query[1360];
 	
-	hDB.Format(query, sizeof(query), 
+	char classQuery[] = 	
 	"\
-	INSERT INTO nt_bhop_scores(steamID, mapName, reconTime, assaultTime, supportTime) \
-	VALUES ('%s', '%s', %f, %f, %f) \
+	INSERT INTO nt_bhop_scores(steamID, mapName, <class>Time, <class>Stamp) \
+	VALUES ('%s', '%s', %f, %s) \
 	ON CONFLICT(steamID, mapName) \
 	DO UPDATE SET \
-	reconTime = CASE \
-	WHEN excluded.reconTime > 0.0 AND (nt_bhop_scores.reconTime = 0.0 OR excluded.reconTime < nt_bhop_scores.reconTime) \
-	THEN excluded.reconTime \
-	ELSE nt_bhop_scores.reconTime \
+	<class>Time = CASE \
+	WHEN excluded.<class>Time > 0.0 AND (nt_bhop_scores.<class>Time = 0.0 OR excluded.<class>Time < nt_bhop_scores.<class>Time) \
+	THEN excluded.<class>Time \
+	ELSE nt_bhop_scores.<class>Time \
 	END,\
-	assaultTime = CASE \
-	WHEN excluded.assaultTime > 0.0 AND (nt_bhop_scores.assaultTime = 0.0 OR excluded.assaultTime < nt_bhop_scores.assaultTime) \
-	THEN excluded.assaultTime \
-	ELSE nt_bhop_scores.assaultTime \
-	END, \
-	supportTime = CASE \
-	WHEN excluded.supportTime > 0.0 AND (nt_bhop_scores.supportTime = 0.0 OR excluded.supportTime < nt_bhop_scores.supportTime) \
-	THEN excluded.supportTime \
-	ELSE nt_bhop_scores.supportTime \
+	<class>Stamp = CASE \
+	WHEN excluded.<class>Time > 0.0 AND (nt_bhop_scores.<class>Time = 0.0 OR excluded.<class>Time < nt_bhop_scores.assaultTime) \
+	THEN excluded.<class>Stamp \
+	ELSE nt_bhop_scores.<class>Stamp \
 	END;\
-	",
-	steamID, g_mapName, reconTime, assaultTime, supportTime);
+	";
+	
+	#if DEBUG
+	PrintToServer("[BHOP] Debug time: %s", classStamp);
+	#endif
+	
+	ReplaceString(classQuery, sizeof(classQuery), "<class>", className, true);
+	
+	hDB.Format(query, sizeof(query), classQuery, steamID, g_mapName, classTime, classStamp);
 	
 	hDB.Query(DB_fast_callback, query, _, DBPrio_Normal);
 }
