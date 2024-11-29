@@ -10,7 +10,7 @@ Sourcemod plugin for Neotokyo that adds a bhop competition/test/training mode. I
 - `!reset` to teleport back to spawn and reset your hop, can be used at any time.
 - `!setspawn` to set a new location for your reset teleport, just move to any location that is on the ground and not close to / in the start/finish lines and while not hopping and use the command.
 - `kill`, `retry` (in console) or switch to spectator and back (!s, !n) to change class, as the map should be in warmup mode.
-- 
+
 **Info:**  
 - If you have a bad start, you can hop back over the start line or use `sm_reset` (you can bind it to a key), which resets your time and gives you full aux. Times only count from when the plugin prints the "Timer" countdown in the center of the screen.
 - Health dropping to 50 is a sign that your time is being recorded, in addition to a timer and speedometer appearing in the centre of your screen.  
