@@ -18,6 +18,7 @@ static char g_className[][] = {
 
 Database hDB;
 ConVar g_cvarTeamBalance;
+char g_topClient[3+1][32];
 float g_topScore[3+1]; // retrieve from database maybe or leave as session only
 float g_allTimes[NEO_MAXPLAYERS+1][3+1];
 float g_time[NEO_MAXPLAYERS+1];
@@ -49,7 +50,7 @@ public Plugin myinfo = {
 	name = "Bhop Game Mode",
 	description = "Test how fast you can bhop, and compete with others!",
 	author = "bauxite",
-	version = "0.6.6",
+	version = "0.6.9",
 	url = "https://github.com/bauxiteDYS/SM-NT-Bhop-Mode",
 };
 
@@ -90,7 +91,7 @@ public Action DebugBhop(int client, int args)
 		}
 	}
 	
-	GameRules_SetPropFloat("m_fRoundTimeLeft", 59940.00);
+	GameRules_SetPropFloat("m_fRoundTimeLeft", 30.0);
 	
 	return Plugin_Handled;
 }
@@ -179,6 +180,7 @@ public void OnMapInit()
 	RegConsoleCmd("sm_myscores", Cmd_ClientScores);
 	RegConsoleCmd("sm_topscores", Cmd_TopScores);
 	RegConsoleCmd("sm_reset", Cmd_Reset);
+	RegConsoleCmd("sm_setspawn", Cmd_SetSpawn);
 	
 	hooked = true;
 }
@@ -200,15 +202,24 @@ public Action SpeedoMeter(Handle timer)
 {
 	for(int i = 1; i <= MaxClients; i++)
 	{
-		if(!g_hopping[i]) // || !IsClientInGame(i))
+		if(!IsClientInGame(i) || !IsPlayerAlive(i) || g_portingClient[i])
 		{
 			continue;
 		}
 		
 		GetEntPropVector(i, Prop_Data, "m_vecVelocity", g_vel);
 		g_speed = SquareRoot(g_vel[0] * g_vel[0] + g_vel[1] * g_vel[1]);
-		g_hopTimer = GetGameTime() - g_oldTime[i];
-		PrintCenterText(i, "%07.3f s : Timer\n%07.3f u/s : Speed", g_hopTimer, g_speed); 
+		
+		if(g_hopping[i])
+		{
+			g_hopTimer = GetGameTime() - g_oldTime[i];
+			PrintCenterText(i, "%07.3f s : Timer\n%07.3f u/s : Speed", g_hopTimer, g_speed); 
+		}
+		else
+		{
+			PrintCenterText(i, "%07.3f u/s : Speed", g_speed); 
+		}
+
 		// brief flicker every 15s due to the game printing the (now empty) "no players on the other team" message unless round time is changed
 	}
 	
@@ -349,11 +360,11 @@ void ResetClient(int client, int class = CLASS_NONE, bool pos = false, bool port
 	if(port || !IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		g_portingClient[client] = false;
-		// if port was started then it will reset in the timer, when there is no chance of port happening
+		// if port was started then it will reset in the timer, do when there is no chance of port happening
 		return;
 	}
 	
-	SetEntityHealth(client, 100);
+	SetEntityHealth(client, 100); // why isnt this done when in triggers?
 	
 	if(class > CLASS_NONE)
 	{
@@ -361,8 +372,6 @@ void ResetClient(int client, int class = CLASS_NONE, bool pos = false, bool port
 		{
 			SetPlayerAUX(client, 100.0);
 		}
-	
-		//PrintToChat(client, "[BHOP] You have been reset");
 	}
 }
 
@@ -402,7 +411,7 @@ public Action TeleportMeTimer(Handle timer, int userid)
 		}
 		#if DEBUG
 		else if(GetVectorDistance(g_spawnOrigin[client], g_defenderOrigin) > 512)
-		{ // if you spawn too far away or on the wrong team/side of the map
+		{ // if you spawn too far away or on the wrong team/side of the map - could also check start/one trigger origin?
 			g_spawnOrigin[client][0] = g_defenderOrigin[0];
 			g_spawnOrigin[client][1] = g_defenderOrigin[1];
 			g_spawnOrigin[client][2] = g_defenderOrigin[2];
@@ -412,19 +421,20 @@ public Action TeleportMeTimer(Handle timer, int userid)
 		class = GetPlayerClass(client);
 	}
 	
-	ResetClient(client, class, true, true);
+	ResetClient(client, class, true, false);
+	g_portingClient[client] = false;
 	
 	return Plugin_Stop;
 }
 
-public Action Cmd_Reset(int client, int args)
+public Action Cmd_Reset(int client, int args) // add cooldown
 {
 	if(!g_bhopMap)
 	{
 		return Plugin_Handled;
 	}
 	
-	if(client <= 0 || client > MaxClients || args > 0 || !IsClientInGame(client))
+	if(client <= 0 || client > MaxClients || args > 0 || g_portingClient[client] || !IsClientInGame(client))
 	{
 		return Plugin_Handled;
 	}
@@ -597,6 +607,32 @@ public void Event_PlayerSpawnPost(Event event, const char[] name, bool dontBroad
 	RequestFrame(SetupPlayer, userid);
 }
 
+public Action Cmd_SetSpawn(int client, int args)
+{
+	if(!g_bhopMap)
+	{
+		return Plugin_Handled;
+	}
+	
+	if(client <= 0 || client > MaxClients || args > 0 || !IsPlayerAlive(client) || !IsClientInGame(client))
+	{
+		return Plugin_Handled;
+	}
+	
+	bool onGround = GetEntityFlags(client) & FL_ONGROUND != 0;
+	
+	if(g_hopping[client] || g_portingClient[client] || g_inBhopArea[client] || g_inStartArea[client] || !onGround)
+	{
+		ReplyToCommand(client, "[BHOP] Can't set new spawn, either stop hopping, move out of the triggers or be on the ground");
+		return Plugin_Handled;
+	}
+	
+	GetClientAbsOrigin(client, g_spawnOrigin[client]);
+	ReplyToCommand(client, "[BHOP] Your new teleport location was set, it will change on death");
+	
+	return Plugin_Handled;
+}
+
 void SetupPlayer(int userid)
 {
 	int client = GetClientOfUserId(userid);
@@ -607,7 +643,7 @@ void SetupPlayer(int userid)
 	}
 	
 	PrintToChat(client, "[BHOP] This is a bhop map, your timings will be calculated from one line to the other");
-	PrintToChat(client, "[BHOP] Commands: !topscores, !myscores, !reset");
+	PrintToChat(client, "[BHOP] Commands: !topscores, !myscores, !reset, !setspawn");
 	
 	SetEntityFlags(client, GetEntityFlags(client) | FL_GODMODE);
 	GetClientAbsOrigin(client, g_spawnOrigin[client]);
@@ -796,7 +832,6 @@ void StartHop(int client)
 	
 	PrintToChat(client, "[BHOP] Start hopping!");
 	PrintCenterText(client, "Go! Go! Go!");
-
 }
 
 void CheckTime(int client, int class, bool teleport = true)
@@ -815,6 +850,7 @@ void CheckTime(int client, int class, bool teleport = true)
 	if(g_time[client] < g_topScore[class] || g_topScore[class] == 0.0) //use floatcompare?
 	{
 		g_topScore[class] = g_time[client];
+		GetClientName(client, g_topClient[class], 32);
 		PrintToChatAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
 		PrintToConsoleAll("[BHOP] New %s record this session by %N!: %f", g_className[class], client, g_time[client]);
 	}
@@ -1052,10 +1088,10 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	char steamID[65];
 	float time;
 	
-	PrintToConsoleAll("[BHOP] Top scores for %s:", g_mapName);
+	PrintToConsoleAll("[BHOP] Best all-time scores for %s:", g_mapName);
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
-	PrintToConsoleAll("Top Recon: %s Time: %f", steamID, time);
+	PrintToConsoleAll("Recon: %s Time: %f", steamID, time);
 	
 	if (!SQL_FetchRow(results))
 	{
@@ -1064,7 +1100,7 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
-	PrintToConsoleAll("Top Assault: %s Time: %f", steamID, time);
+	PrintToConsoleAll("Assault: %s Time: %f", steamID, time);
 	
 	if (!SQL_FetchRow(results))
 	{
@@ -1073,7 +1109,13 @@ void DB_top_callback(Database db, DBResultSet results, const char[] error, int u
 	
 	SQL_FetchString(results, 0, steamID, sizeof(steamID));
 	time = SQL_FetchFloat(results, 1);
-	PrintToConsoleAll("Top Support: %s Time: %f", steamID, time);
+	PrintToConsoleAll("Support: %s Time: %f", steamID, time);
+	
+	PrintToConsoleAll("#################################");
+	PrintToConsoleAll("[BHOP] Top session scores for %s:", g_mapName);
+	PrintToConsoleAll("Recon: %s Time: %f", g_topClient[1], g_topScore[1]);
+	PrintToConsoleAll("Assault: %s Time: %f", g_topClient[2], g_topScore[2]);
+	PrintToConsoleAll("Support: %s Time: %f", g_topClient[3], g_topScore[3]);
 }
 
 int FindEntityByTargetname(const char[] classname, const char[] targetname)
