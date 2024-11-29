@@ -3,11 +3,12 @@ Sourcemod plugin for Neotokyo that adds a bhop competition/test/training mode. I
 
 **Bhop game mode for neotokyo:**  
 - Go (bhop!?) from one trigger to the other to get a print of your time, compete with other players to be faster!
-- Use the command `!topscores` to get a print in console of the current class records for the current server, `0.0` if no record is set.
+- Use the command `!topscores` to get a print in console of the current best all-time class records for the current server, `0.0` if no record is set, and also the top scores for that session, all-time scores give a steamid, whereas session scores give the name of the client as it was when they achieved that score in that map session.
 - Use the command `!myscores` to get your scores in console, `0.0` if no record is set.
 - Use the command  `!reset` to teleport back to spawn and reset your hop, can be used at any time.
-- Use `kill` or `retry` in console to change class, as the map should be in warmup mode.
-- If you have a bad start, you can hop back over the start line, which resets your time and gives you full aux. Times only count from when the plugin prints "start hopping".
+- Use the command  `!setspawn` to set a new location for your reset teleport, just move to any location that is on the ground and not close to / in the start/finish lines and while not hopping and use the command.
+- Use `kill`, `retry` (in console) or switch to spectator and back (!s, !n) to change class, as the map should be in warmup mode.
+- If you have a bad start, you can hop back over the start line or use `sm_reset` (you can bind it to a key), which resets your time and gives you full aux. Times only count from when the plugin prints the "Timer" countdown in the center of the screen.
 - Health dropping to 50 is a sign that your time is being recorded, in addition to a timer and speedometer appearing in the centre of your screen.  
 
 **Instructions for Server Operators:**  
